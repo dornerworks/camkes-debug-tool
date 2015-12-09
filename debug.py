@@ -4,6 +4,7 @@ import sys
 import os
 import getopt
 import re
+import shutil
 
 fault_slots = dict()
 used_components = dict()
@@ -12,60 +13,13 @@ debug_component_paths = dict()
 debug_component_instances = dict()
 camkes_file_text = []
 
-# Add fault eps to the CapDL, by creating a new ep for each component
-# Returns a dict containing the slot the ep was added to
-def add_fault_ep(project_name):
-	# Regex to get component name
-	regex1 = re.compile(r'cnode_(\w*) {')
-	# Regex to get cap slot
-	regex2 = re.compile(r'(0x\w*):')
-	# Regex to find object declarations
-	regex3 = re.compile(r'objects {')
-
-	with open("build/arm/imx31/%s/%s.cdl" % (project_name, project_name), "r+") as f:
-		CapDL_text = f.readlines()
-		# Find components and add fault eps
-		for index in range(0, len(CapDL_text)):
-			component_match = regex1.match(CapDL_text[index])
-			# Found a component, find next free slot and add ep
-			if component_match:
-				index += 1
-				cnode = component_match.group(1)
-				insert_line = index
-				# Find next free slot
-				free_slot = 0
-				while CapDL_text[index] != "}\n":
-					slot_match = regex2.match(CapDL_text[index])
-					slot = int(slot_match.group(1), 16)
-					free_slot = max(free_slot, slot)
-					index += 1
-				free_slot += 1
-				# Add a fault ep at the free slot
-				CapDL_text.insert(insert_line, "%s: %s_fault (RWX)\n" % (hex(free_slot), cnode))
-				fault_slots[cnode] = free_slot
-		f.seek(0)
-		# Add fault ep declarations
-		for index in range(0, len(CapDL_text)):
-			object_match = regex3.match(CapDL_text[index])
-			# Found object declarations
-			if object_match:
-				index += 1
-				for cnode in fault_slots.keys():
-					CapDL_text.insert(index, "%s_fault = ep\n" % cnode)
-		f.seek(0)
-		# Write out file
-		for line in CapDL_text:
-			f.write(line)
-
 def clean_debug(project_name):
 	print "Cleaning"
-	
-	# Delete the debug component files
 	clean_debug_components(project_name)
-	# Delete the debug camkes files
 	clean_debug_camkes(project_name)
-	# Restore the makefile
 	clean_makefile(project_name)
+	clean_debug_interface(project_name)
+	clean_debug_component(project_name)
 	os.system("make clean")
 
 # Removes any component camkes debug files
@@ -216,6 +170,32 @@ def modify_makefile(project_name):
 			for line in makefile_text:
 				f.write(line)
 
+# Generates an interface file
+def generate_debug_interface(project_name):
+	with open("apps/%s/interfaces/%s_debug.idl4" % (project_name, project_name), 'w+') as f:
+		f.write("procedure %s_debug {\n    void debug(in int num);\n}\n" % project_name)
+
+# Cleans up the debug interface file
+def clean_debug_interface(project_name):
+	interface_path = "apps/%s/interfaces/%s_debug.idl4" % (project_name, project_name)
+	if os.path.isfile(interface_path):
+		os.remove(interface_path)
+
+# Generates the debug component
+def generate_debug_component(project_name):
+	component_path = "apps/%s/components/%s_debug" % (project_name, project_name)
+	if not os.path.isdir(component_path):
+		os.mkdir(component_path)
+	with open(component_path + ("/%s_debug.camkes" % project_name), 'w+') as f:
+		f.write("component %s_debug {\n" % project_name)
+		f.write("}")
+
+# Cleans up the debug component
+def clean_debug_component(project_name):
+	component_path = "apps/%s/components/%s_debug" % (project_name, project_name)
+	if os.path.isdir(component_path):
+		shutil.rmtree(component_path)
+	
 
 def main(argv):
 	os.chdir("../..")
@@ -238,15 +218,17 @@ def main(argv):
 	if not debug_found:
 		print "No used debug components were found in %s" % project_name
 		sys.exit(0)
+
 	# Parse project camkes
 	parse_debug_camkes(project_name)
+	# Generate interface
+	generate_debug_interface(project_name)
 	# Add a debug component
-
+	generate_debug_component(project_name)
 	# Write new camkes
 	write_camkes(project_name)
 	# Modify makefile to build new camkes
 	modify_makefile(project_name)
-	#add_fault_ep(project_name)
 	os.system("make")
 
 if __name__ == "__main__":
