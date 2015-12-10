@@ -12,7 +12,10 @@ debug_component_types = dict()
 debug_component_paths = dict()
 debug_component_instances = dict()
 camkes_file_text = []
+capdl_text = []
+### Cleanup functions ###
 
+# Initiates cleanup
 def clean_debug(project_name):
 	print "Cleaning"
 	clean_debug_components(project_name)
@@ -50,6 +53,21 @@ def clean_makefile(project_name):
 		os.remove(makefile_path)
 		os.rename(backup_path, makefile_path)
 
+# Cleans up the debug interface file
+def clean_debug_interface(project_name):
+	interface_path = "apps/%s/interfaces/%s_debug.idl4" % (project_name, project_name)
+	if os.path.isfile(interface_path):
+		os.remove(interface_path)
+
+# Cleans up the debug component
+def clean_debug_component(project_name):
+	component_path = "apps/%s/components/%s_debug" % (project_name, project_name)
+	if os.path.isdir(component_path):
+		shutil.rmtree(component_path)
+	
+
+
+### Code gen functions ###
 
 # Finds the types of components used in this project and adds them to the used_components dict
 def find_used_components(project_name):
@@ -62,8 +80,6 @@ def find_used_components(project_name):
 			if component_search:
 				component = component_search.group(1)
 				used_components[component] = 0
-
-	print used_components
 
 # Searches used components for debug keywords, 
 # and adds the path to the debug_component_paths dict,
@@ -87,20 +103,19 @@ def parse_debug_components(project_name):
 				relative_path = "components/%s/%s" % (component_folder_name, file_name)
 				with open(original_camkes_file_path) as f:
 					component_file_text = f.readlines()
-					component_type = ""
-					for line_index in range(0, len(component_file_text)):
-						component_match = regex2.match(component_file_text[line_index])
-						debug_match = regex3.match(component_file_text[line_index])
-						if component_match:
-							component_type = component_match.group(1)
-							if component_type not in used_components.keys():
-								break
-						if debug_match and component_type in used_components.keys():
-							debug_found = True
-							debug_component_types[component_type] = 0
-							debug_component_paths[relative_path] = 0
-							create_debug_component(project_name, original_camkes_file_path, component_file_text)
-	print debug_component_types
+				component_type = ""
+				for line_index in range(0, len(component_file_text)):
+					component_match = regex2.match(component_file_text[line_index])
+					debug_match = regex3.match(component_file_text[line_index])
+					if component_match:
+						component_type = component_match.group(1)
+						if component_type not in used_components.keys():
+							break
+					if debug_match and component_type in used_components.keys():
+						debug_found = True
+						debug_component_types[component_type] = 0
+						debug_component_paths[relative_path] = 0
+						create_debug_component(project_name, original_camkes_file_path, component_file_text)
 	return debug_found
 
 # Creates a new camkes file for a debug component. 
@@ -113,13 +128,15 @@ def create_debug_component(project_name, original_camkes_file_path,
 		for line in component_file_text:
 			if not regex1.match(line):
 				f.write(line)
+			else:
+				f.write("  uses %s_debug debug;\n" % project_name)
 
 # Finds the names of all debug component instances 
 # and adds them to the debug_component_instances dict
 
 # Creates a new camkes file that points to the newly
 # generated debug component camkes files
-def parse_debug_camkes(project_name):
+def parse_camkes(project_name):
 	# Regex used to find component types and names
 	regex1 = re.compile(r'component (\w*)\s*(\w*);')
 	# Regex used to find component imports
@@ -128,13 +145,13 @@ def parse_debug_camkes(project_name):
 	global camkes_file_text
 	with open("apps/%s/%s.camkes" % (project_name, project_name), "r+") as f:
 		camkes_file_text = f.readlines()
-		for line in camkes_file_text:
-			component_search = regex1.search(line)
-			if component_search:
-				component_type = component_search.group(1)
-				component_instance_name = component_search.group(2)
-				if component_type in debug_component_types:
-					debug_component_instances[component_instance_name] = 0
+	for line in camkes_file_text:
+		component_search = regex1.search(line)
+		if component_search:
+			component_type = component_search.group(1)
+			component_instance_name = component_search.group(2)
+			if component_type in debug_component_types:
+				debug_component_instances[component_instance_name] = 0
 
 	for index, line in enumerate(camkes_file_text):
 		import_match = regex2.match(line)
@@ -142,12 +159,6 @@ def parse_debug_camkes(project_name):
 			component_path = import_match.group(1)
 			if component_path in debug_component_paths.keys():
 				camkes_file_text[index] = "import \"%s.dbg\";\n" % component_path
-
-def write_camkes(project_name):
-	print len(camkes_file_text)
-	with open("apps/%s/%s.camkes.dbg" % (project_name, project_name), "w+") as f:
-		for line in camkes_file_text:
-			f.write(line)
 
 # Modifies the makefile to build the debug camkes file instead
 def modify_makefile(project_name):
@@ -175,31 +186,89 @@ def generate_debug_interface(project_name):
 	with open("apps/%s/interfaces/%s_debug.idl4" % (project_name, project_name), 'w+') as f:
 		f.write("procedure %s_debug {\n    void debug(in int num);\n}\n" % project_name)
 
-# Cleans up the debug interface file
-def clean_debug_interface(project_name):
-	interface_path = "apps/%s/interfaces/%s_debug.idl4" % (project_name, project_name)
-	if os.path.isfile(interface_path):
-		os.remove(interface_path)
-
 # Generates the debug component
 def generate_debug_component(project_name):
 	component_path = "apps/%s/components/%s_debug" % (project_name, project_name)
 	if not os.path.isdir(component_path):
 		os.mkdir(component_path)
 	with open(component_path + ("/%s_debug.camkes" % project_name), 'w+') as f:
+		f.write("import \"../../interfaces/%s_debug.idl4\";\n" % project_name)
 		f.write("component %s_debug {\n" % project_name)
+		for component_instance in debug_component_instances.keys():
+			f.write("   //%s\n" % component_instance)
+			f.write("    provides %s_debug %s_debug;\n" % (project_name, component_instance))
 		f.write("}")
 
-# Cleans up the debug component
-def clean_debug_component(project_name):
-	component_path = "apps/%s/components/%s_debug" % (project_name, project_name)
-	if os.path.isdir(component_path):
-		shutil.rmtree(component_path)
-	
+# Modify the camkes text to include the new component, and add dummy connections
+# TODO: Change this to make sure we insert in the composition section
+def modify_camkes(project_name):
+	# Regex to find camkes composition start
+	regex1 = re.compile(r'\s*}')
+
+	global camkes_file_text
+	# Insert the debug component import
+	camkes_file_text.insert(0, "import \"components/%s_debug/%s_debug.camkes\";\n" % (project_name, project_name))
+	for index, line in enumerate(camkes_file_text):
+		if regex1.match(line):
+			camkes_file_text.insert(index, "    component %s_debug debug;\n" % project_name)
+			conn_num = 1
+			for component_instance in debug_component_instances.keys():
+				camkes_file_text.insert(index + 1, "    connection seL4Debug debug%s(from %s.debug, to debug.%s_debug);\n" % 
+			    (conn_num, component_instance, component_instance))
+			break
+
+# Write a new camkes file
+def write_camkes(project_name):
+	with open("apps/%s/%s.camkes.dbg" % (project_name, project_name), "w+") as f:
+		for line in camkes_file_text:
+			f.write(line)
+
+# Find fault ep slots
+def find_fault_eps(project_name):
+	global debug_component_instances
+	global capdl_text
+
+	with open("build/arm/imx31/%s/%s.cdl" % (project_name, project_name)) as f:
+		capdl_text = f.readlines();
+
+	for component_instance in debug_component_instances.keys():
+		regex1 = re.compile(r'cnode_%s {' % component_instance)
+		regex2 = re.compile(r'(0x\w*): conn\d*_%s_debug \(RWX\)' % component_instance)
+		for index, line in enumerate(capdl_text):
+			cnode_match = regex1.match(line)
+			if cnode_match:
+				while capdl_text[index] != "}\n":
+					fault_slot_match = regex2.match(capdl_text[index])
+					if fault_slot_match:
+						debug_component_instances[component_instance] = int(fault_slot_match.group(1), 16)
+						break
+					index += 1
+				break
+			
+
+# Register fault eps
+def register_fault_eps():
+	global debug_component_instances
+	global capdl_text
+
+	for component_instance, fault_ep in debug_component_instances.iteritems():
+		regex1 = re.compile(r'(%s_tcb_.*) = tcb \((.*)\)' % component_instance)
+		for index, line in enumerate(capdl_text):
+			tcb_decl_match = regex1.match(line)
+			if tcb_decl_match:
+				tcb_name = tcb_decl_match.group(1)
+				tcb_params = tcb_decl_match.group(2) 
+				capdl_text[index] = "%s = tcb (%s, fault_ep: %s)\n" % (tcb_name, tcb_params, fault_ep)
+
+# Write out the capdl file
+def write_capdl(project_name):
+	with open("build/arm/imx31/%s/%s.cdl" % (project_name, project_name), 'w+') as f:
+		for line in capdl_text:
+			f.write(line)
 
 def main(argv):
 	os.chdir("../..")
-	project_name = "gdb-test"	
+	project_name = "gdb_test"	
 	try:
 		opts, args = getopt.getopt(argv, "c")
 	except getopt.GetoptError as err:
@@ -220,15 +289,23 @@ def main(argv):
 		sys.exit(0)
 
 	# Parse project camkes
-	parse_debug_camkes(project_name)
+	parse_camkes(project_name)
 	# Generate interface
 	generate_debug_interface(project_name)
 	# Add a debug component
 	generate_debug_component(project_name)
+	# Modify camkes to include debug code
+	modify_camkes(project_name)
 	# Write new camkes
 	write_camkes(project_name)
 	# Modify makefile to build new camkes
 	modify_makefile(project_name)
+	os.system("make")
+	os.system("make")
+	# Find the slots that fault eps are placed
+	find_fault_eps(project_name)
+	register_fault_eps()
+	write_capdl(project_name)
 	os.system("make")
 
 if __name__ == "__main__":
