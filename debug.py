@@ -258,7 +258,7 @@ def register_fault_eps():
 			if tcb_decl_match:
 				tcb_name = tcb_decl_match.group(1)
 				tcb_params = tcb_decl_match.group(2) 
-				capdl_text[index] = "%s = tcb (%s, fault_ep: %s)\n" % (tcb_name, tcb_params, fault_ep)
+				capdl_text[index] = "%s = tcb (%s, fault_ep: %s)\n" % (tcb_name, tcb_params, hex(fault_ep))
 
 # Write out the capdl file
 def write_capdl(project_name):
