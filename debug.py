@@ -21,7 +21,7 @@ def clean_debug(project_name):
 	clean_debug_components(project_name)
 	clean_debug_camkes(project_name)
 	clean_makefile(project_name)
-	#os.system("make clean")
+	os.system("make clean")
 
 # Removes any component camkes debug files
 def clean_debug_components(project_name):
@@ -115,7 +115,7 @@ def create_debug_camkes(project_name, original_camkes_file_path,
 				f.write(line)
 			else:
 				f.write("  uses %s_debug debug;\n" % project_name)
-
+				f.write("  provides %s_debug internal;\n" % project_name)
 # Finds the names of all debug component instances 
 # and adds them to the debug_component_instances dict
 
@@ -123,21 +123,22 @@ def create_debug_camkes(project_name, original_camkes_file_path,
 # generated debug component camkes files
 def parse_camkes(project_name):
 	# Regex used to find component types and names
-	regex1 = re.compile(r'component (\w*)\s*(\w*);')
+	regex1 = re.compile(r'debug_component (\w*)\s*(\w*);')
 	# Regex used to find component imports
 	regex2 = re.compile(r'import \"(.*)\";')
 
 	global camkes_file_text
 	with open("apps/%s/%s.camkes" % (project_name, project_name), "r+") as f:
 		camkes_file_text = f.readlines()
-	for line in camkes_file_text:
+	for index, line in enumerate(camkes_file_text):
 		component_search = regex1.search(line)
 		if component_search:
 			component_type = component_search.group(1)
 			component_instance_name = component_search.group(2)
 			if component_type in debug_component_types:
 				debug_component_instances[component_instance_name] = 0
-
+			camkes_file_text[index] = line.replace("debug_component", "component")
+					
 	for index, line in enumerate(camkes_file_text):
 		import_match = regex2.match(line)
 		if import_match:
@@ -172,35 +173,41 @@ def modify_makefile(project_name):
 def modify_camkes(project_name):
 	# Regex to find camkes composition start
 	regex1 = re.compile(r'\s*}')
-	#
 	regex2 = re.compile(r'assembly {')
 	global camkes_file_text
 	# Insert the debug component import
 	camkes_file_text.insert(0 , "import <debug_connector.camkes>;\n");
 	for index, line in enumerate(camkes_file_text):
 		if regex1.match(line):
-			camkes_file_text.insert(index, "    component %s_debug debug;\n" % project_name)
+			camkes_file_text.insert(index, "    component debug_server debug;\n" )
 			index += 1
 			conn_num = 1
 			for component_instance in debug_component_instances.keys():
-				camkes_file_text.insert(index, "    connection seL4Debug debug%s(from %s.debug, to debug.%s_debug);\n" % 
+				camkes_file_text.insert(index, "    connection seL4GDB debug%s(from %s.debug, to debug.%s_debug);\n" % 
+			    (conn_num, component_instance, component_instance))
+				camkes_file_text.insert(index, "    connection seL4Debug debug%s_internal(from debug.%s_internal, to %s.internal);\n" % 
 			    (conn_num, component_instance, component_instance))
 				index += 1
-			camkes_file_text.insert(index , "    component Serial hw_serial;\n");
-			camkes_file_text.insert(index + 1, "    connection seL4HardwareIOPort debug_port(from debug.serial_port, to hw_serial.serial);\n");
-			camkes_file_text.insert(index + 2, "    connection seL4HardwareInterrupt interrupt1(from hw_serial.irq, to debug.irq);\n");
-			camkes_file_text.insert(index + 4, "  configuration {\n    hw_serial.serial_attributes = \"0x3f8:0x3ff\";\n    hw_serial.irq_attributes = 4;\n  }\n")
+			index += 1
+			new_line =  "    component Serial hw_serial;\n"
+			new_line += "    connection seL4HardwareIOPort debug_port(from debug.serial_port, to hw_serial.serial);\n"
+			new_line += "    connection seL4HardwareInterrupt interrupt1(from hw_serial.irq, to debug.irq);\n"
+			camkes_file_text.insert(index , new_line);
+			camkes_file_text.insert(index + 2, "  configuration {\n    hw_serial.serial_attributes = \"0x3f8:0x3ff\";\n    hw_serial.irq_attributes = 4;\n  }\n")
 			break
 
 	for index, line in enumerate(camkes_file_text):
 		if regex2.match(line):
+
 			camkes_file_text.insert(index, "component Serial {\n  hardware;\n  provides IOPort serial;\n  emits Irq4 irq;\n}\n\n")
-			camkes_file_text.insert(index, "component %s_debug {\n  uses IOPort serial_port;\n  consumes Irq4 irq;\n" % project_name)
+			camkes_file_text.insert(index, "component debug_server {\n  uses IOPort serial_port;\n  consumes Irq4 irq;\n")
 			index += 1
 			for component_instance in debug_component_instances.keys():
-				camkes_file_text.insert(index, "  provides %s_debug %s_debug;\n" % (project_name, component_instance))
-				camkes_file_text.insert(index, "  //%s debug\n" % component_instance)
-				index += 2
+				new_line  = "  //%s debug\n" % component_instance
+				new_line += "  uses %s_debug %s_internal;\n" % (project_name, component_instance)
+				new_line += "  provides %s_debug %s_debug;\n" % (project_name, component_instance)
+				camkes_file_text.insert(index, new_line)
+				index += 1
 			camkes_file_text.insert(index, "}\n\n")
 			index += 1
 			camkes_file_text.insert(index, "procedure %s_debug {\n  void debug(in int num);\n}\n\n" % project_name)
