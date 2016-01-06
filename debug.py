@@ -21,9 +21,7 @@ def clean_debug(project_name):
 	clean_debug_components(project_name)
 	clean_debug_camkes(project_name)
 	clean_makefile(project_name)
-	clean_debug_interface(project_name)
-	clean_debug_component(project_name)
-	os.system("make clean")
+	#os.system("make clean")
 
 # Removes any component camkes debug files
 def clean_debug_components(project_name):
@@ -53,20 +51,7 @@ def clean_makefile(project_name):
 		os.remove(makefile_path)
 		os.rename(backup_path, makefile_path)
 
-# Cleans up the debug interface file
-def clean_debug_interface(project_name):
-	interface_path = "apps/%s/interfaces/%s_debug.idl4" % (project_name, project_name)
-	if os.path.isfile(interface_path):
-		os.remove(interface_path)
-
-# Cleans up the debug component
-def clean_debug_component(project_name):
-	component_path = "apps/%s/components/%s_debug" % (project_name, project_name)
-	if os.path.isdir(component_path):
-		shutil.rmtree(component_path)
 	
-
-
 ### Code gen functions ###
 
 # Finds the types of components used in this project and adds them to the used_components dict
@@ -115,12 +100,12 @@ def parse_debug_components(project_name):
 						debug_found = True
 						debug_component_types[component_type] = 0
 						debug_component_paths[relative_path] = 0
-						create_debug_component(project_name, original_camkes_file_path, component_file_text)
+						create_debug_camkes(project_name, original_camkes_file_path, component_file_text)
 	return debug_found
 
 # Creates a new camkes file for a debug component. 
 # The new file is created with a .dbg extension
-def create_debug_component(project_name, original_camkes_file_path, 
+def create_debug_camkes(project_name, original_camkes_file_path, 
 	                       component_file_text):
 	# Regex used to find debug keyword
 	regex1 = re.compile(r'\s*debug;')
@@ -181,42 +166,45 @@ def modify_makefile(project_name):
 			for line in makefile_text:
 				f.write(line)
 
-# Generates an interface file
-def generate_debug_interface(project_name):
-	with open("apps/%s/interfaces/%s_debug.idl4" % (project_name, project_name), 'w+') as f:
-		f.write("procedure %s_debug {\n    void debug(in int num);\n}\n" % project_name)
-
-# Generates the debug component
-def generate_debug_component(project_name):
-	component_path = "apps/%s/components/%s_debug" % (project_name, project_name)
-	if not os.path.isdir(component_path):
-		os.mkdir(component_path)
-	with open(component_path + ("/%s_debug.camkes" % project_name), 'w+') as f:
-		f.write("import \"../../interfaces/%s_debug.idl4\";\n" % project_name)
-		f.write("component %s_debug {\n" % project_name)
-		for component_instance in debug_component_instances.keys():
-			f.write("   //%s\n" % component_instance)
-			f.write("    provides %s_debug %s_debug;\n" % (project_name, component_instance))
-		f.write("}")
-
 # Modify the camkes text to include the new component, and add dummy connections
+# Also add the serial port and connections
 # TODO: Change this to make sure we insert in the composition section
 def modify_camkes(project_name):
 	# Regex to find camkes composition start
 	regex1 = re.compile(r'\s*}')
-
+	#
+	regex2 = re.compile(r'assembly {')
 	global camkes_file_text
 	# Insert the debug component import
-	camkes_file_text.insert(0, "import \"components/%s_debug/%s_debug.camkes\";\n" % (project_name, project_name))
+	camkes_file_text.insert(0 , "import <debug_connector.camkes>;\n");
 	for index, line in enumerate(camkes_file_text):
 		if regex1.match(line):
 			camkes_file_text.insert(index, "    component %s_debug debug;\n" % project_name)
+			index += 1
 			conn_num = 1
 			for component_instance in debug_component_instances.keys():
-				camkes_file_text.insert(index + 1, "    connection seL4Debug debug%s(from %s.debug, to debug.%s_debug);\n" % 
+				camkes_file_text.insert(index, "    connection seL4Debug debug%s(from %s.debug, to debug.%s_debug);\n" % 
 			    (conn_num, component_instance, component_instance))
+				index += 1
+			camkes_file_text.insert(index , "    component Serial hw_serial;\n");
+			camkes_file_text.insert(index + 1, "    connection seL4HardwareIOPort debug_port(from debug.serial_port, to hw_serial.serial);\n");
+			camkes_file_text.insert(index + 2, "    connection seL4HardwareInterrupt interrupt1(from hw_serial.irq, to debug.irq);\n");
+			camkes_file_text.insert(index + 4, "  configuration {\n    hw_serial.serial_attributes = \"0x3f8:0x3ff\";\n    hw_serial.irq_attributes = 4;\n  }\n")
 			break
 
+	for index, line in enumerate(camkes_file_text):
+		if regex2.match(line):
+			camkes_file_text.insert(index, "component Serial {\n  hardware;\n  provides IOPort serial;\n  emits Irq4 irq;\n}\n\n")
+			camkes_file_text.insert(index, "component %s_debug {\n  uses IOPort serial_port;\n  consumes Irq4 irq;\n" % project_name)
+			index += 1
+			for component_instance in debug_component_instances.keys():
+				camkes_file_text.insert(index, "  provides %s_debug %s_debug;\n" % (project_name, component_instance))
+				camkes_file_text.insert(index, "  //%s debug\n" % component_instance)
+				index += 2
+			camkes_file_text.insert(index, "}\n\n")
+			index += 1
+			camkes_file_text.insert(index, "procedure %s_debug {\n  void debug(in int num);\n}\n\n" % project_name)
+			break
 # Write a new camkes file
 def write_camkes(project_name):
 	with open("apps/%s/%s.camkes.dbg" % (project_name, project_name), "w+") as f:
@@ -228,7 +216,7 @@ def find_fault_eps(project_name):
 	global debug_component_instances
 	global capdl_text
 
-	with open("build/arm/imx31/%s/%s.cdl" % (project_name, project_name)) as f:
+	with open("build/x86/pc99/%s/%s.cdl" % (project_name, project_name)) as f:
 		capdl_text = f.readlines();
 
 	for component_instance in debug_component_instances.keys():
@@ -262,7 +250,7 @@ def register_fault_eps():
 
 # Write out the capdl file
 def write_capdl(project_name):
-	with open("build/arm/imx31/%s/%s.cdl" % (project_name, project_name), 'w+') as f:
+	with open("build/x86/pc99/%s/%s.cdl" % (project_name, project_name), 'w+') as f:
 		for line in capdl_text:
 			f.write(line)
 
@@ -290,10 +278,7 @@ def main(argv):
 
 	# Parse project camkes
 	parse_camkes(project_name)
-	# Generate interface
-	generate_debug_interface(project_name)
-	# Add a debug component
-	generate_debug_component(project_name)
+
 	# Modify camkes to include debug code
 	modify_camkes(project_name)
 	# Write new camkes
