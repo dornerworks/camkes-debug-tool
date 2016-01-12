@@ -46,6 +46,6 @@ int /*? me.to_instance.name ?*/_read_memory(seL4_Word addr, seL4_Word length) {
   seL4_MessageInfo_t /*? info ?*/ = seL4_MessageInfo_new(0, 0, 0, 2);
   seL4_Send(/*? ep ?*/, /*? info ?*/);
   /*? info ?*/ = seL4_Recv(/*? ep ?*/, NULL);
-  printf("Received value %p\n", seL4_GetMR(0));
+  printf("Received value %p\n", (void *) seL4_GetMR(0));
   return seL4_GetMR(0);
 }

@@ -56,7 +56,7 @@ int /*? me.to_interface.name ?*/__run(void) {
         for (int i = 0; i < length; i++) {
         	byte = *((char*)addr + i);
         	message |= ((seL4_Word) byte) << ((i%4)*8);
-        	printf("byte: 0x%02X\n", byte & 0xFF);
+        	printf("byte: 0x%02x\n", byte & 0xFF);
         	if ((i+1)%4 == 0 || i == length-1) {
         		seL4_SetMR(i/4, message);
         		printf("value: %p\n", (void *) message);

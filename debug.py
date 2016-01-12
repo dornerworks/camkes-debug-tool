@@ -58,6 +58,9 @@ def clean_makefile(project_name):
 	
 ### Code gen functions ###
 
+def add_templates(project_name):
+	os.symlink(os.path.abspath("tools/debug/templates"), "apps/%s/debug/templates" % project_name)
+
 # Finds the types of components used in this project and adds them to the used_components dict
 def find_used_components(project_name):
 	# Regex used to find used components
@@ -167,6 +170,8 @@ def modify_makefile(project_name):
 				camkes_match = regex1.match(makefile_text[line_index])
 				if camkes_match:
 					makefile_text[line_index] = "ADL := %s.camkes.dbg\n" % camkes_match.group(1)
+			makefile_text.insert(line_index, "debug_server_HFILES = debug/include/EthType.h\n")
+			makefile_text.insert(line_index, "TEMPLATES := debug/templates\n")
 			f.seek(0)
 			for line in makefile_text:
 				f.write(line)
@@ -180,7 +185,7 @@ def modify_camkes(project_name):
 	regex2 = re.compile(r'assembly {')
 	global camkes_file_text
 	# Insert the debug component import
-	camkes_file_text.insert(0 , "import <debug_connector.camkes>;\nimport \"debug/debug.camkes\";\n");
+	camkes_file_text.insert(0 , "import \"debug/debug.camkes\";\n");
 	for index, line in enumerate(camkes_file_text):
 		if regex1.match(line):
 			camkes_file_text.insert(index, "    component debug_server debug;\n" )
@@ -197,11 +202,11 @@ def modify_camkes(project_name):
 			new_line += "    component EthDriver hw_eth;\n"
 			new_line += "    connection seL4HardwareIOPort debug_port(from debug.serial_port, to hw_serial.serial);\n"
 			new_line += "    connection seL4HardwareInterrupt interrupt1(from hw_serial.irq, to debug.serial_irq);\n"
-			new_line += "    connection seL4HardwareMMIO ethdrivermmio1(from debug.mmio, to hw_eth.mmio);\n"
-			new_line += "    connection seL4HardwareInterrupt interrupt2(from hw_eth.irq, to debug.eth_irq);\n"
+			new_line += "    //connection seL4HardwareMMIO ethdrivermmio1(from debug.mmio, to hw_eth.mmio);\n"
+			new_line += "    //connection seL4HardwareInterrupt interrupt2(from hw_eth.irq, to debug.eth_irq);\n"
 			camkes_file_text.insert(index , new_line);
-			new_line =  "  configuration {\n    hw_serial.serial_attributes = \"0x3f8:0x3ff\";\n    hw_serial.serial_irq_attributes = 4;\n"
-			new_line += "    hw_eth.mmio_attributes = \"0xf1b80000:0x80000\";\n    hw_eth.irq_attributes = \"16,1,1\";\n  }\n"
+			new_line =  "  configuration {\n    hw_serial.serial_attributes = \"0x3f8:0x3ff\";\n    hw_serial.irq_attributes = 4;\n"
+			new_line += "    //hw_eth.mmio_attributes = \"0xf1b80000:0x80000\";\n    //hw_eth.irq_attributes = 16;\n  }\n"
 			camkes_file_text.insert(index + 2, new_line)
 			break
 
@@ -212,11 +217,15 @@ def add_debug_files(project_name):
 		os.mkdir("apps/%s/debug/include" % project_name)
 	os.symlink(os.path.abspath("tools/debug/EthType.h"), "apps/%s/debug/include/EthType.h" % project_name)
 	with open("apps/%s/debug/debug.camkes" % (project_name), "w+") as f:
-		new_line =  "procedure %s_debug {\n  void debug(in int num);\n}\n\n" % project_name	
+		new_line =  "connector seL4Debug {\n  from  Procedure user_inf template \"seL4Debug-from.template.c\";\n"
+		new_line += "  to Procedure user_inf template \"seL4Debug-to.template.c\";\n}\n\n"
+		new_line += "connector seL4GDB {\n  from  Procedure user_inf template \"seL4GDB-from.template.c\";\n"
+		new_line += "  to Procedure user_inf template \"seL4GDB-to.template.c\";\n}\n\n"
+		new_line += "procedure %s_debug {\n  void debug(in int num);\n}\n\n" % project_name
 		new_line += "component Serial {\n  hardware;\n  emits IRQ4 irq;\n  provides IOPort serial;\n}\n\n"
-		new_line += "component EthDriver {\n  hardware;\n  emits IRQ3 irq;\n  dataport EthDriverMMIO_t mmio;\n}\n\n"
+		new_line += "component EthDriver {\n  hardware;\n  emits IRQ16 irq;\n  dataport EthDriverMMIO_t mmio;\n}\n\n"
 		new_line += "component debug_server {\n  include \"EthType.h\";\n  uses IOPort serial_port; \n"
-		new_line += "  consumes IRQ4 serial_irq;\n  dataport EthDriverMMIO_t mmio;\n  consumes IRQ3 eth_irq;\n"
+		new_line += "  consumes IRQ4 serial_irq;\n  //dataport EthDriverMMIO_t mmio;\n  //consumes IRQ16 eth_irq;\n"
 		for component_instance in debug_component_instances.keys():
 			new_line += "  //%s debug\n" % component_instance
 			new_line += "  uses %s_debug %s_internal;\n" % (project_name, component_instance)
@@ -251,7 +260,6 @@ def find_fault_eps(project_name):
 						break
 					index += 1
 				break
-			
 
 # Register fault eps
 def register_fault_eps():
@@ -294,7 +302,6 @@ def main(argv):
 	if not debug_found:
 		print "No used debug components were found in %s" % project_name
 		sys.exit(0)
-
 	# Parse project camkes
 	parse_camkes(project_name)
 
@@ -305,13 +312,16 @@ def main(argv):
 	write_camkes(project_name)
 	# Modify makefile to build new camkes
 	modify_makefile(project_name)
-	'''os.system("make")
+	# Add custom templates
+	add_templates(project_name)
+	os.system("make -j8 libmuslc")
+	os.system("make")
 	os.system("make")
 	# Find the slots that fault eps are placed
 	find_fault_eps(project_name)
 	register_fault_eps()
 	write_capdl(project_name)
-	os.system("make")'''
+	os.system("make")
 
 if __name__ == "__main__":
 	main(sys.argv[1:])

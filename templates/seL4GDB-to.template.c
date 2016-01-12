@@ -248,10 +248,10 @@ int /*? me.to_interface.name ?*/__run(void) {
         seL4_Word label;
         seL4_MessageInfo_t /*? info ?*/ = seL4_Recv(/*? ep ?*/, &badge);
         printf("Fault received on /*? me.to_interface.name ?*/\n");
-        printf("%%Stop:T0505:98e7ffbf\n");
         label = seL4_MessageInfo_get_label(/*? info ?*/);
         // Start accepting GDB input
         serial_irq_reg_callback(serial_irq_rcv, 0);
+        // TODO Start accepting ethernet input
         //send_reply();
     }
     UNREACHABLE();
@@ -343,6 +343,7 @@ static int handle_command(char* command) {
             printf("Not implemented: kill\n");
             break;
         case 'm':
+            printf("reading memory\n");
             GDB_read_memory(command);
             break;
         case 'M':
