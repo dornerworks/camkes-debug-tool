@@ -25,7 +25,7 @@
 /*? macros.show_includes(me.from_instance.type.includes) ?*/
 /*? macros.show_includes(me.from_interface.type.includes, '../static/components/' + me.from_instance.type.name + '/') ?*/
 
-/*- set ep = alloc(me.from_instance.name + "_debug", seL4_EndpointObject, read=True, write=True) -*/
+/*- set ep = alloc(me.from_instance.name + "_internal", seL4_EndpointObject, read=True, write=True) -*/
 
 /*- set BUFFER_BASE = c_symbol('BUFFER_BASE') -*/
 #define /*? BUFFER_BASE ?*/ ((void*)&seL4_GetIPCBuffer()->msg[0])
@@ -39,11 +39,13 @@ int /*? me.from_interface.name ?*/__run(void) {
     return 0;
 }
 
-int /*? me.from_interface.name ?*/_test(void) {
-  printf("Sending\n");
+int /*? me.to_instance.name ?*/_read_memory(seL4_Word addr, seL4_Word length) {
   /*- set info = c_symbol('info') -*/
-  seL4_MessageInfo_t /*? info ?*/ = seL4_MessageInfo_new(0, 0, 0, 0);
+  seL4_SetMR(0, addr);
+  seL4_SetMR(1, length);
+  seL4_MessageInfo_t /*? info ?*/ = seL4_MessageInfo_new(0, 0, 0, 2);
   seL4_Send(/*? ep ?*/, /*? info ?*/);
   /*? info ?*/ = seL4_Recv(/*? ep ?*/, NULL);
-  printf("Received\n");
+  printf("Received value %p\n", seL4_GetMR(0));
+  return seL4_GetMR(0);
 }

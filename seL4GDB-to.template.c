@@ -96,6 +96,8 @@ static int handle_command(char* command);
 static int fifo_depth = 1;
 static int fifo_used = 0;
 
+/* Register access functions */
+
 static inline void write_ier(uint8_t val) {
     serial_port_out8_offset(IER_ADDR, val);
 }
@@ -148,6 +150,17 @@ static void reset_mcr(void) {
     write_mcr(MCR_DTR | MCR_RTS | MCR_AO1 | MCR_AO2);
 }
 
+/* GDB functions */
+static char* GDB_read_memory(char* command) {
+    char* addr_string = strtok(command, "m,");
+    char* length_string = strtok(NULL, "m,");
+    seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, 16);
+    seL4_Word length = (seL4_Word) strtol(length_string, NULL, 10);
+    /*? me.from_instance.name ?*/_read_memory(addr, length);
+    return 0;
+}
+
+/* Char buffer functions */
 static void initialise_buffer(void) {
     buf.length = 0;
     buf.checksum_count = 0;
@@ -219,9 +232,9 @@ static void clear_iir(void) {
     }
 }
 
-static void serial_irq(void* cookie) {
+static void serial_irq_rcv(void* cookie) {
     clear_iir();
-    irq_reg_callback(serial_irq, cookie);
+    serial_irq_reg_callback(serial_irq_rcv, cookie);
 }
 
 
@@ -235,9 +248,10 @@ int /*? me.to_interface.name ?*/__run(void) {
         seL4_Word label;
         seL4_MessageInfo_t /*? info ?*/ = seL4_Recv(/*? ep ?*/, &badge);
         printf("Fault received on /*? me.to_interface.name ?*/\n");
+        printf("%%Stop:T0505:98e7ffbf\n");
         label = seL4_MessageInfo_get_label(/*? info ?*/);
         // Start accepting GDB input
-        irq_reg_callback(serial_irq, 0);
+        serial_irq_reg_callback(serial_irq_rcv, 0);
         //send_reply();
     }
     UNREACHABLE();
@@ -329,8 +343,7 @@ static int handle_command(char* command) {
             printf("Not implemented: kill\n");
             break;
         case 'm':
-            printf("implemented: read memory\n");
-            sender1_internal_test();
+            GDB_read_memory(command);
             break;
         case 'M':
             printf("Not implemented: write memory\n");

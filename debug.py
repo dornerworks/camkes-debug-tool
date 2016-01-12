@@ -34,7 +34,7 @@ def clean_debug_components(project_name):
 				debug_file_path = "apps/%s/components/%s/%s" % (project_name, component_folder_name, file_name)
 				os.remove(debug_file_path)
 
-# Removes any top level debug camkes files
+# Removes any debug camkes files
 def clean_debug_camkes(project_name):
 	# Regex used to find debug camkes files
 	regex1 = re.compile(r'.*\.camkes\.dbg')
@@ -43,6 +43,10 @@ def clean_debug_camkes(project_name):
 		if regex1.match(file_name):
 			debug_camkes_path = "apps/%s/%s" % (project_name, file_name)
 			os.remove(debug_camkes_path)
+	if os.path.exists("apps/%s/debug" % project_name):
+		shutil.rmtree("apps/%s/debug" % project_name)
+	#if os.path.islink("apps/%s/debug/include/EthType.h" % project_name):
+	#	os.remove("apps/%s/debug/include/EthType.h" % project_name)		
 
 def clean_makefile(project_name):
 	makefile_path = "apps/%s/Makefile" % project_name
@@ -176,7 +180,7 @@ def modify_camkes(project_name):
 	regex2 = re.compile(r'assembly {')
 	global camkes_file_text
 	# Insert the debug component import
-	camkes_file_text.insert(0 , "import <debug_connector.camkes>;\n");
+	camkes_file_text.insert(0 , "import <debug_connector.camkes>;\nimport \"debug/debug.camkes\";\n");
 	for index, line in enumerate(camkes_file_text):
 		if regex1.match(line):
 			camkes_file_text.insert(index, "    component debug_server debug;\n" )
@@ -190,29 +194,37 @@ def modify_camkes(project_name):
 				index += 1
 			index += 1
 			new_line =  "    component Serial hw_serial;\n"
+			new_line += "    component EthDriver hw_eth;\n"
 			new_line += "    connection seL4HardwareIOPort debug_port(from debug.serial_port, to hw_serial.serial);\n"
-			new_line += "    connection seL4HardwareInterrupt interrupt1(from hw_serial.irq, to debug.irq);\n"
+			new_line += "    connection seL4HardwareInterrupt interrupt1(from hw_serial.irq, to debug.serial_irq);\n"
+			new_line += "    connection seL4HardwareMMIO ethdrivermmio1(from debug.mmio, to hw_eth.mmio);\n"
+			new_line += "    connection seL4HardwareInterrupt interrupt2(from hw_eth.irq, to debug.eth_irq);\n"
 			camkes_file_text.insert(index , new_line);
-			camkes_file_text.insert(index + 2, "  configuration {\n    hw_serial.serial_attributes = \"0x3f8:0x3ff\";\n    hw_serial.irq_attributes = 4;\n  }\n")
+			new_line =  "  configuration {\n    hw_serial.serial_attributes = \"0x3f8:0x3ff\";\n    hw_serial.serial_irq_attributes = 4;\n"
+			new_line += "    hw_eth.mmio_attributes = \"0xf1b80000:0x80000\";\n    hw_eth.irq_attributes = \"16,1,1\";\n  }\n"
+			camkes_file_text.insert(index + 2, new_line)
 			break
 
-	for index, line in enumerate(camkes_file_text):
-		if regex2.match(line):
 
-			camkes_file_text.insert(index, "component Serial {\n  hardware;\n  provides IOPort serial;\n  emits Irq4 irq;\n}\n\n")
-			camkes_file_text.insert(index, "component debug_server {\n  uses IOPort serial_port;\n  consumes Irq4 irq;\n")
-			index += 1
-			for component_instance in debug_component_instances.keys():
-				new_line  = "  //%s debug\n" % component_instance
-				new_line += "  uses %s_debug %s_internal;\n" % (project_name, component_instance)
-				new_line += "  provides %s_debug %s_debug;\n" % (project_name, component_instance)
-				camkes_file_text.insert(index, new_line)
-				index += 1
-			camkes_file_text.insert(index, "}\n\n")
-			index += 1
-			camkes_file_text.insert(index, "procedure %s_debug {\n  void debug(in int num);\n}\n\n" % project_name)
-			break
-# Write a new camkes file
+def add_debug_files(project_name):
+	os.mkdir("apps/%s/debug" % project_name)
+	if not os.path.exists("apps/%s/debug/include" % project_name):
+		os.mkdir("apps/%s/debug/include" % project_name)
+	os.symlink(os.path.abspath("tools/debug/EthType.h"), "apps/%s/debug/include/EthType.h" % project_name)
+	with open("apps/%s/debug/debug.camkes" % (project_name), "w+") as f:
+		new_line =  "procedure %s_debug {\n  void debug(in int num);\n}\n\n" % project_name	
+		new_line += "component Serial {\n  hardware;\n  emits IRQ4 irq;\n  provides IOPort serial;\n}\n\n"
+		new_line += "component EthDriver {\n  hardware;\n  emits IRQ3 irq;\n  dataport EthDriverMMIO_t mmio;\n}\n\n"
+		new_line += "component debug_server {\n  include \"EthType.h\";\n  uses IOPort serial_port; \n"
+		new_line += "  consumes IRQ4 serial_irq;\n  dataport EthDriverMMIO_t mmio;\n  consumes IRQ3 eth_irq;\n"
+		for component_instance in debug_component_instances.keys():
+			new_line += "  //%s debug\n" % component_instance
+			new_line += "  uses %s_debug %s_internal;\n" % (project_name, component_instance)
+			new_line += "  provides %s_debug %s_debug;\n" % (project_name, component_instance)
+		new_line += "}\n\n"	
+		f.write(new_line)
+
+# Write a new project camkes file
 def write_camkes(project_name):
 	with open("apps/%s/%s.camkes.dbg" % (project_name, project_name), "w+") as f:
 		for line in camkes_file_text:
@@ -288,17 +300,18 @@ def main(argv):
 
 	# Modify camkes to include debug code
 	modify_camkes(project_name)
+	add_debug_files(project_name)
 	# Write new camkes
 	write_camkes(project_name)
 	# Modify makefile to build new camkes
 	modify_makefile(project_name)
-	os.system("make")
+	'''os.system("make")
 	os.system("make")
 	# Find the slots that fault eps are placed
 	find_fault_eps(project_name)
 	register_fault_eps()
 	write_capdl(project_name)
-	os.system("make")
+	os.system("make")'''
 
 if __name__ == "__main__":
 	main(sys.argv[1:])
