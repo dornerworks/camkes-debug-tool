@@ -41,7 +41,7 @@ debug_camkes_component_connection = \
   provides {1}_debug {0}_debug;
 """
 
-debug_server_decls = \
+debug_server_connections = \
 """
     component Serial hw_serial;
     component EthDriver hw_eth;
@@ -60,3 +60,15 @@ debug_server_config = \
     //hw_eth.irq_attributes = 16;
   }
 """
+
+debug_server_decl = \
+"\n    component debug_server debug;\n"
+
+debug_import = \
+"import \"debug/debug.camkes\";\n"
+
+GDB_conn = \
+"    connection seL4GDB debug%s(from %s.debug, to debug.%s_debug);\n"
+
+Debug_conn = \
+"    connection seL4Debug debug%s_internal(from debug.%s_internal, to %s.internal);\n"

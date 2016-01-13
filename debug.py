@@ -8,6 +8,7 @@ import shutil
 
 import camkes_strings
 import paths
+import clean
 
 fault_slots = dict()
 used_components = dict()
@@ -16,46 +17,7 @@ debug_component_paths = dict()
 debug_component_instances = dict()
 camkes_file_text = []
 capdl_text = []
-### Cleanup functions ###
 
-# Initiates cleanup
-def clean_debug(project_name):
-	print "Cleaning"
-	clean_debug_components(project_name)
-	clean_debug_camkes(project_name)
-	clean_makefile(project_name)
-	os.system("make clean")
-
-# Removes any component camkes debug files
-def clean_debug_components(project_name):
-	# Regex used to find debug files
-	regex1 = re.compile(r'.*\.camkes\.dbg')
-
-	for component_folder_name in os.listdir(paths.components_folder % project_name):
-		for file_name in os.listdir(paths.component_path % (project_name, component_folder_name)):
-			if regex1.match(file_name):
-				debug_file_path = paths.component_files % (project_name, component_folder_name, file_name)
-				os.remove(debug_file_path)
-
-# Removes any debug camkes files
-def clean_debug_camkes(project_name):
-	if os.path.isfile(paths.new_camkes):
-		os.remove(paths.new_camkes)
-	if os.path.exists(paths.debug_folder % project_name):
-		shutil.rmtree(paths.debug_folder % project_name)
-
-def clean_makefile(project_name):
-	makefile_path = paths.makefile % project_name
-	backup_path = paths.makefile_backup % project_name
-	if os.path.isfile(backup_path):
-		os.remove(makefile_path)
-		os.rename(backup_path, makefile_path)
-
-	
-### Code gen functions ###
-
-def add_templates(project_name):
-	os.symlink(os.path.abspath(paths.templates_from), paths.templates_to % project_name)
 
 # Finds the types of components used in this project and adds them to the used_components dict
 def find_used_components(project_name):
@@ -157,39 +119,51 @@ def modify_makefile(project_name):
 			for line in makefile_text:
 				f.write(line)
 
-# Modify the camkes text to include the new component, and add dummy connections
-# Also add the serial port and connections
-# TODO: Change this to make sure we insert in the composition section
+# Link templates into application
+def add_templates(project_name):
+	os.symlink(os.path.abspath(paths.templates_from), paths.templates_to % project_name)
+
+# Make all the necessary modifications to the camkes file
 def modify_camkes(project_name):
-	# Regex to find camkes composition start
-	regex1 = re.compile(r'\s*}')
 	global camkes_file_text
+	# Regex to find end of section
+	regex1 = re.compile(r'\s*}')
 	# Insert the debug component import
-	camkes_file_text.insert(0 , "import \"debug/debug.camkes\";\n");
+	camkes_file_text.insert(0 , camkes_strings.debug_import);
+	# Add component declarations and connections to top-level camkes file
 	for index, line in enumerate(camkes_file_text):
 		if regex1.match(line):
-			camkes_file_text.insert(index, "    component debug_server debug;\n" )
+			# Insert at the end of the assembly
+			# TODO Track braces to make sure it's actually the end
+			# Debug server declaration
+			camkes_file_text.insert(index, camkes_strings.debug_server_decl)
 			index += 1
-			conn_num = 1
+			conn_num = 0
+			# For each component, add the fault_ep and internal debug connection
 			for component_instance in debug_component_instances.keys():
-				camkes_file_text.insert(index, "    connection seL4GDB debug%s(from %s.debug, to debug.%s_debug);\n" % 
-			    (conn_num, component_instance, component_instance))
-				camkes_file_text.insert(index, "    connection seL4Debug debug%s_internal(from debug.%s_internal, to %s.internal);\n" % 
-			    (conn_num, component_instance, component_instance))
+				camkes_file_text.insert(index, camkes_strings.GDB_conn % (conn_num, component_instance, component_instance))
+				camkes_file_text.insert(index, camkes_strings.Debug_conn % (conn_num, component_instance, component_instance))
 				index += 1
 				conn_num += 1
 			index += 1
-			camkes_file_text.insert(index , camkes_strings.debug_server_decls);
+			# Add serial / ethernet connections
+			camkes_file_text.insert(index , camkes_strings.debug_server_connections);
 			break
+	# Add configuration parameters
 	for index, line in enumerate(camkes_file_text):
 		if regex1.match(line):
 			camkes_file_text.insert(index + 1, camkes_strings.debug_server_config)
 
+# Adds new debug component definitions
 def add_debug_files(project_name):
+	# Make folder for new files
 	os.mkdir(paths.debug_folder % project_name)
+	# Add include folder
 	if not os.path.exists(paths.debug_include % project_name):
 		os.mkdir(paths.debug_include  % project_name)
+	# Add definition for ethernet buffer
 	os.symlink(os.path.abspath(paths.ethtype_from), paths.ethtype_to % project_name)
+	# Definitions for everything else in debug.camkes file
 	with open(paths.debug_camkes % (project_name), "w+") as f:
 		new_line =  camkes_strings.debug_camkes_common % project_name
 		for component_instance in debug_component_instances.keys():
@@ -203,7 +177,7 @@ def write_camkes(project_name):
 		for line in camkes_file_text:
 			f.write(line)
 
-# Find fault ep slots
+# Find fault ep slots in the capDL
 def find_fault_eps(project_name):
 	global debug_component_instances
 	global capdl_text
@@ -256,7 +230,7 @@ def main(argv):
 	# Check for clean flag
 	for o, a in opts:
 		if o == "-c":
-			clean_debug(project_name)
+			clean.clean_debug(project_name)
 			sys.exit(0)
 	# Find components used in this project
 	find_used_components(project_name)
