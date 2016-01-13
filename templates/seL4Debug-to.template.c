@@ -36,13 +36,6 @@
 /*- set reply_cap_slot = alloc_cap('reply_cap_slot', None) -*/
 /*- set info = c_symbol('info') -*/
 
-void print_fault(seL4_MessageInfo_t info, seL4_Word label);
-void print_message_registers(unsigned int size);
-void print_VMFault (void);
-void print_MessageInfo(seL4_MessageInfo_t info);
-void send_reply(void);
-void print_registers(void);
-
 int /*? me.to_interface.name ?*/__run(void) {   
     while (1) { 
         // Receive RPC and reply

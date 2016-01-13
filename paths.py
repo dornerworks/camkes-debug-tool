@@ -17,7 +17,7 @@ component_path      = components_folder + "%s/"
 ethtype_to          = debug_include + "EthType.h"
 ethtype_from        = "tools/debug/include/EthType.h"
 
-
-
+original_component  = component_path + "%s.camkes"
+debugged_component  = component_path + "%s.camkes.dbg"
 component_files     = component_path + "%s"
-component_files_rel = "components/%s/%s"
+component_files_rel = "components/%s/%s.camkes"

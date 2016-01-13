@@ -90,7 +90,7 @@ typedef struct gdb_buffer {
 
 gdb_buffer_t buf;
 
-void send_reply(void);
+static void send_reply(void);
 static int handle_command(char* command);
 
 static int fifo_depth = 1;
@@ -257,7 +257,7 @@ int /*? me.to_interface.name ?*/__run(void) {
     UNREACHABLE();
 }
 
-void send_reply(void) {
+static void send_reply(void) {
     seL4_Error err = seL4_CNode_SaveCaller(/*? cnode ?*/, /*? reply_cap_slot ?*/, 32);
     assert(err==0);
     seL4_MessageInfo_t reply = seL4_MessageInfo_new(0, 0, 0, 1);
@@ -474,7 +474,7 @@ static void enable_interrupt() {
 
 
 
-void pre_init(void) {
+void /*? me.to_interface.name ?*/__init(void) {
 
     // Initialize the serial port
     set_dlab(0); // we always assume the dlab is 0 unless we explicitly change it

@@ -75,48 +75,33 @@ def find_used_components(project_name):
 # Creates a new camkes file for each one found
 # Returns true if any debug components found, false otherwise
 def parse_debug_components(project_name):
-	# Regex used to find camkes files
-	regex1 = re.compile(r'.*\.camkes')
-	# Regex used to find name of component
-	regex2 = re.compile(r'component (\w*)')
-	# Regex used to find debug keyword
-	regex3 = re.compile(r'\s*debug;')
-
 	debug_found = False
 
-	for component_folder_name in os.listdir(paths.components_folder % project_name):
-		for file_name in os.listdir(paths.component_path % (project_name, component_folder_name)):
-			if regex1.match(file_name):
-				original_camkes_file_path = paths.component_files % (project_name, component_folder_name, file_name)
-				relative_path = paths.component_files_rel % (component_folder_name, file_name)
-				with open(original_camkes_file_path) as f:
-					component_file_text = f.readlines()
-				component_type = ""
-				for line_index in range(0, len(component_file_text)):
-					component_match = regex2.match(component_file_text[line_index])
-					debug_match = regex3.match(component_file_text[line_index])
-					if component_match:
-						component_type = component_match.group(1)
-						if component_type not in used_components.keys():
-							break
-					if debug_match and component_type in used_components.keys():
-						debug_found = True
-						debug_component_types[component_type] = 0
-						debug_component_paths[relative_path] = 0
-						create_debug_camkes(project_name, original_camkes_file_path, component_file_text)
+	regex1 = re.compile(r'\s*debug_component\s*(\w*) .*;')
+	with open(paths.old_camkes % (project_name, project_name)) as f:
+		for line in f.readlines():
+			m = regex1.match(line)
+			if m:
+				debug_found = True
+				component_type = m.group(1)
+				debug_component_types[component_type] = 0
+				debug_component_paths[paths.component_files_rel % (m.group(1), m.group(1))] = 0
+				create_debug_camkes(project_name, component_type)
 	return debug_found
 
 # Creates a new camkes file for a debug component. 
 # The new file is created with a .dbg extension
-def create_debug_camkes(project_name, original_camkes_file_path, 
-	                       component_file_text):
+def create_debug_camkes(project_name, component_type):
 	# Regex used to find debug keyword
-	regex1 = re.compile(r'\s*debug;')
-	with open(original_camkes_file_path + ".dbg", 'w+') as f:
+	regex1 = re.compile(r'component %s {\s*' % component_type)
+
+	with open(paths.original_component % (project_name, component_type, component_type))  as f:
+		component_file_text = f.readlines()
+
+	with open(paths.debugged_component % (project_name, component_type, component_type), 'w+') as f:
 		for line in component_file_text:
-			if not regex1.match(line):
-				f.write(line)
-			else:
+			f.write(line)
+			if regex1.match(line):
 				f.write("  uses %s_debug debug;\n" % project_name)
 				f.write("  provides %s_debug internal;\n" % project_name)
 # Finds the names of all debug component instances 
@@ -178,7 +163,6 @@ def modify_makefile(project_name):
 def modify_camkes(project_name):
 	# Regex to find camkes composition start
 	regex1 = re.compile(r'\s*}')
-	regex2 = re.compile(r'assembly {')
 	global camkes_file_text
 	# Insert the debug component import
 	camkes_file_text.insert(0 , "import \"debug/debug.camkes\";\n");
@@ -193,11 +177,13 @@ def modify_camkes(project_name):
 				camkes_file_text.insert(index, "    connection seL4Debug debug%s_internal(from debug.%s_internal, to %s.internal);\n" % 
 			    (conn_num, component_instance, component_instance))
 				index += 1
+				conn_num += 1
 			index += 1
 			camkes_file_text.insert(index , camkes_strings.debug_server_decls);
-			camkes_file_text.insert(index + 2, camkes_strings.debug_server_config)
 			break
-
+	for index, line in enumerate(camkes_file_text):
+		if regex1.match(line):
+			camkes_file_text.insert(index + 1, camkes_strings.debug_server_config)
 
 def add_debug_files(project_name):
 	os.mkdir(paths.debug_folder % project_name)
@@ -278,7 +264,7 @@ def main(argv):
 	debug_found = parse_debug_components(project_name)
 	# Check if debug components found
 	if not debug_found:
-		print "No used debug components were found in %s" % project_name
+		print "No debug components were found in %s" % project_name
 		sys.exit(0)
 	# Parse project camkes
 	parse_camkes(project_name)
