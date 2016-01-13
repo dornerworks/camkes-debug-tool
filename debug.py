@@ -6,6 +6,9 @@ import getopt
 import re
 import shutil
 
+import camkes_strings
+import paths
+
 fault_slots = dict()
 used_components = dict()
 debug_component_types = dict()
@@ -28,29 +31,22 @@ def clean_debug_components(project_name):
 	# Regex used to find debug files
 	regex1 = re.compile(r'.*\.camkes\.dbg')
 
-	for component_folder_name in os.listdir("apps/%s/components" % project_name):
-		for file_name in os.listdir("apps/%s/components/%s" % (project_name, component_folder_name)):
+	for component_folder_name in os.listdir(paths.components_folder % project_name):
+		for file_name in os.listdir(paths.component_path % (project_name, component_folder_name)):
 			if regex1.match(file_name):
-				debug_file_path = "apps/%s/components/%s/%s" % (project_name, component_folder_name, file_name)
+				debug_file_path = paths.component_files % (project_name, component_folder_name, file_name)
 				os.remove(debug_file_path)
 
 # Removes any debug camkes files
 def clean_debug_camkes(project_name):
-	# Regex used to find debug camkes files
-	regex1 = re.compile(r'.*\.camkes\.dbg')
-
-	for file_name in os.listdir("apps/%s" % project_name):
-		if regex1.match(file_name):
-			debug_camkes_path = "apps/%s/%s" % (project_name, file_name)
-			os.remove(debug_camkes_path)
-	if os.path.exists("apps/%s/debug" % project_name):
-		shutil.rmtree("apps/%s/debug" % project_name)
-	#if os.path.islink("apps/%s/debug/include/EthType.h" % project_name):
-	#	os.remove("apps/%s/debug/include/EthType.h" % project_name)		
+	if os.path.isfile(paths.new_camkes):
+		os.remove(paths.new_camkes)
+	if os.path.exists(paths.debug_folder % project_name):
+		shutil.rmtree(paths.debug_folder % project_name)
 
 def clean_makefile(project_name):
-	makefile_path = "apps/%s/Makefile" % project_name
-	backup_path = "apps/%s/Makefile.bk" % project_name
+	makefile_path = paths.makefile % project_name
+	backup_path = paths.makefile_backup % project_name
 	if os.path.isfile(backup_path):
 		os.remove(makefile_path)
 		os.rename(backup_path, makefile_path)
@@ -59,14 +55,14 @@ def clean_makefile(project_name):
 ### Code gen functions ###
 
 def add_templates(project_name):
-	os.symlink(os.path.abspath("tools/debug/templates"), "apps/%s/debug/templates" % project_name)
+	os.symlink(os.path.abspath(paths.templates_from), paths.templates_to % project_name)
 
 # Finds the types of components used in this project and adds them to the used_components dict
 def find_used_components(project_name):
 	# Regex used to find used components
 	regex1 = re.compile(r'component (\w*)')
 
-	with open("apps/%s/%s.camkes" % (project_name, project_name), "r+") as f:
+	with open(paths.old_camkes % (project_name, project_name), "r+") as f:
 		for line in f:
 			component_search = regex1.search(line)
 			if component_search:
@@ -88,11 +84,11 @@ def parse_debug_components(project_name):
 
 	debug_found = False
 
-	for component_folder_name in os.listdir("apps/%s/components" % project_name):
-		for file_name in os.listdir("apps/%s/components/%s" % (project_name, component_folder_name)):
+	for component_folder_name in os.listdir(paths.components_folder % project_name):
+		for file_name in os.listdir(paths.component_path % (project_name, component_folder_name)):
 			if regex1.match(file_name):
-				original_camkes_file_path = "apps/%s/components/%s/%s" % (project_name, component_folder_name, file_name)
-				relative_path = "components/%s/%s" % (component_folder_name, file_name)
+				original_camkes_file_path = paths.component_files % (project_name, component_folder_name, file_name)
+				relative_path = paths.component_files_rel % (component_folder_name, file_name)
 				with open(original_camkes_file_path) as f:
 					component_file_text = f.readlines()
 				component_type = ""
@@ -135,7 +131,7 @@ def parse_camkes(project_name):
 	regex2 = re.compile(r'import \"(.*)\";')
 
 	global camkes_file_text
-	with open("apps/%s/%s.camkes" % (project_name, project_name), "r+") as f:
+	with open(paths.old_camkes % (project_name, project_name), "r+") as f:
 		camkes_file_text = f.readlines()
 	for index, line in enumerate(camkes_file_text):
 		component_search = regex1.search(line)
@@ -158,11 +154,11 @@ def modify_makefile(project_name):
 	# Regex to find camkes file reference
 	regex1 = re.compile(r'ADL := (.*)\.camkes')
 	# If a backup exists it means it has already been modified, no need to do anything
-	if not os.path.isfile("apps/%s/Makefile.bk" % project_name):
-		with open("apps/%s/Makefile" % project_name, 'r+') as f:
+	if not os.path.isfile(paths.makefile_backup % project_name):
+		with open(paths.makefile % project_name, 'r+') as f:
 			makefile_text = f.readlines()
 			# Create a backup
-			with open("apps/%s/Makefile.bk" % project_name, 'w+') as f2:
+			with open(paths.makefile_backup % project_name, 'w+') as f2:
 				for line in makefile_text:
 					f2.write(line)
 			# Modify the makefile and write to it
@@ -198,44 +194,26 @@ def modify_camkes(project_name):
 			    (conn_num, component_instance, component_instance))
 				index += 1
 			index += 1
-			new_line =  "    component Serial hw_serial;\n"
-			new_line += "    component EthDriver hw_eth;\n"
-			new_line += "    connection seL4HardwareIOPort debug_port(from debug.serial_port, to hw_serial.serial);\n"
-			new_line += "    connection seL4HardwareInterrupt interrupt1(from hw_serial.irq, to debug.serial_irq);\n"
-			new_line += "    //connection seL4HardwareMMIO ethdrivermmio1(from debug.mmio, to hw_eth.mmio);\n"
-			new_line += "    //connection seL4HardwareInterrupt interrupt2(from hw_eth.irq, to debug.eth_irq);\n"
-			camkes_file_text.insert(index , new_line);
-			new_line =  "  configuration {\n    hw_serial.serial_attributes = \"0x3f8:0x3ff\";\n    hw_serial.irq_attributes = 4;\n"
-			new_line += "    //hw_eth.mmio_attributes = \"0xf1b80000:0x80000\";\n    //hw_eth.irq_attributes = 16;\n  }\n"
-			camkes_file_text.insert(index + 2, new_line)
+			camkes_file_text.insert(index , camkes_strings.debug_server_decls);
+			camkes_file_text.insert(index + 2, camkes_strings.debug_server_config)
 			break
 
 
 def add_debug_files(project_name):
-	os.mkdir("apps/%s/debug" % project_name)
-	if not os.path.exists("apps/%s/debug/include" % project_name):
-		os.mkdir("apps/%s/debug/include" % project_name)
-	os.symlink(os.path.abspath("tools/debug/EthType.h"), "apps/%s/debug/include/EthType.h" % project_name)
-	with open("apps/%s/debug/debug.camkes" % (project_name), "w+") as f:
-		new_line =  "connector seL4Debug {\n  from  Procedure user_inf template \"seL4Debug-from.template.c\";\n"
-		new_line += "  to Procedure user_inf template \"seL4Debug-to.template.c\";\n}\n\n"
-		new_line += "connector seL4GDB {\n  from  Procedure user_inf template \"seL4GDB-from.template.c\";\n"
-		new_line += "  to Procedure user_inf template \"seL4GDB-to.template.c\";\n}\n\n"
-		new_line += "procedure %s_debug {\n  void debug(in int num);\n}\n\n" % project_name
-		new_line += "component Serial {\n  hardware;\n  emits IRQ4 irq;\n  provides IOPort serial;\n}\n\n"
-		new_line += "component EthDriver {\n  hardware;\n  emits IRQ16 irq;\n  dataport EthDriverMMIO_t mmio;\n}\n\n"
-		new_line += "component debug_server {\n  include \"EthType.h\";\n  uses IOPort serial_port; \n"
-		new_line += "  consumes IRQ4 serial_irq;\n  //dataport EthDriverMMIO_t mmio;\n  //consumes IRQ16 eth_irq;\n"
+	os.mkdir(paths.debug_folder % project_name)
+	if not os.path.exists(paths.debug_include % project_name):
+		os.mkdir(paths.debug_include  % project_name)
+	os.symlink(os.path.abspath(paths.ethtype_from), paths.ethtype_to % project_name)
+	with open(paths.debug_camkes % (project_name), "w+") as f:
+		new_line =  camkes_strings.debug_camkes_common % project_name
 		for component_instance in debug_component_instances.keys():
-			new_line += "  //%s debug\n" % component_instance
-			new_line += "  uses %s_debug %s_internal;\n" % (project_name, component_instance)
-			new_line += "  provides %s_debug %s_debug;\n" % (project_name, component_instance)
+			new_line += camkes_strings.debug_camkes_component_connection.format(component_instance, project_name)
 		new_line += "}\n\n"	
 		f.write(new_line)
 
 # Write a new project camkes file
 def write_camkes(project_name):
-	with open("apps/%s/%s.camkes.dbg" % (project_name, project_name), "w+") as f:
+	with open(paths.new_camkes % (project_name, project_name), "w+") as f:
 		for line in camkes_file_text:
 			f.write(line)
 
@@ -304,7 +282,6 @@ def main(argv):
 		sys.exit(0)
 	# Parse project camkes
 	parse_camkes(project_name)
-
 	# Modify camkes to include debug code
 	modify_camkes(project_name)
 	add_debug_files(project_name)
