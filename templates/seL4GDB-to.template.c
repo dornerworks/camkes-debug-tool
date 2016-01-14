@@ -157,8 +157,27 @@ static char* GDB_read_memory(char* command) {
     seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, 16);
     seL4_Word length = (seL4_Word) strtol(length_string, NULL, 10);
     /*? me.from_instance.name ?*/_read_memory(addr, length);
+    // TODO Send the GDB response packet over ethernet
     return 0;
 }
+
+/*static char* GDB_insert_point(char* command) {
+    char* type = strtok(command, "Z,");
+    if (type == "0") {
+        printf("Inserting memory breakpoint\n");
+        GDB_insert_memory_breeakpoint(command)
+    } else {
+        printf("Point type not implemented\n");
+    }
+}*/
+
+/*static char* GDB_insert_memory_breakpoint(char* command) {
+    char* addr_string = strtok(NULL, "Z,");
+    // Ignored
+    //char* kind = strtok(NULL, "Z,");
+    seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, 16);
+    /// *? me.from_instance.name ?* /_set_memory(addr, length, data);
+}*/
 
 /* Char buffer functions */
 static void initialise_buffer(void) {
@@ -281,7 +300,7 @@ static void serial_putchar(int c) {
 
 static int handle_command(char* command) {
     switch (command[0]) {
-        case'!':
+        case '!':
             // Enable extended mode
             printf("Not implemented: enable extended mode\n");
             break;
@@ -343,7 +362,7 @@ static int handle_command(char* command) {
             printf("Not implemented: kill\n");
             break;
         case 'm':
-            printf("reading memory\n");
+            printf("Reading memory\n");
             GDB_read_memory(command);
             break;
         case 'M':
@@ -386,10 +405,11 @@ static int handle_command(char* command) {
             printf("Not implemented: write binary\n");
             break;
         case 'z':
-            printf("Not implemented: detach\n");
+            printf("Not implemented: remove point\n");
             break;
         case 'Z':
-            printf("Not implemented: insert breakpoint / watchpoint\n");
+            printf("Inserting point\n");
+            //GDB_insert_point(command);
             break;
         default:
             printf("Unknown command\n");

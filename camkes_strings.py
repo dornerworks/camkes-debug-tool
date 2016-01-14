@@ -41,7 +41,13 @@ debug_camkes_component_connection = \
   provides CAmkES_Debug {0}_fault;
 """
 
-debug_server_connections = \
+debug_server_component_connection = \
+"""
+  uses CAmkES_Debug fault;
+  provides CAmkES_Debug GDB_delegate;
+"""
+
+debug_server_io_connections = \
 """
     component Serial hw_serial;
     component EthDriver hw_eth;
