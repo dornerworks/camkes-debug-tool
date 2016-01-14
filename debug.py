@@ -62,10 +62,14 @@ def create_debug_camkes(project_name, component_type):
 
 	with open(paths.debugged_component % (project_name, component_type, component_type), 'w+') as f:
 		for line in component_file_text:
-			f.write(line)
 			if regex1.match(line):
+				debug_component_type = "debug_" + component_type
+				line = line.replace(component_type, debug_component_type)
+				f.write(line)
 				f.write("  uses CAmkES_Debug fault;\n")
 				f.write("  provides CAmkES_Debug GDB_delegate;\n")
+			else:
+				f.write(line)
 
 # Finds the names of all debug component instances 
 # and adds them to the debug_component_instances dict
@@ -85,21 +89,24 @@ def parse_camkes(project_name):
 		if component_search:
 			component_type = component_search.group(1)
 			component_instance_name = component_search.group(2)
+			debug_component_type = "debug_" + component_type
 			if component_type in debug_component_types:
 				debug_component_instances[component_instance_name] = 0
 			camkes_file_text[index] = line.replace("debug_component", "component")
+			camkes_file_text[index] = camkes_file_text[index].replace(component_type, debug_component_type)
 	# Find import of component paths and add debug version import if it is being debugged
-	for index, line in enumerate(camkes_file_text):
-		import_match = regex2.match(line)
+	for index in range(0, len(camkes_file_text)):
+		import_match = regex2.match(camkes_file_text[index])
 		if import_match:
 			component_path = import_match.group(1)
 			if component_path in debug_component_paths.keys():
-				camkes_file_text[index] = "import \"%s.dbg\";\n" % component_path
+				camkes_file_text[index] += "import \"%s.dbg\";\n" % component_path
 
 # Modifies the makefile to build the debug camkes file instead
 def modify_makefile(project_name):
 	# Regex to find camkes file reference
 	regex1 = re.compile(r'ADL := (.*)\.camkes')
+	new_lines = ""
 	# If a backup exists it means it has already been modified, no need to do anything
 	if not os.path.isfile(paths.makefile_backup % project_name):
 		with open(paths.makefile % project_name, 'r+') as f:
@@ -115,6 +122,14 @@ def modify_makefile(project_name):
 					makefile_text[line_index] = "ADL := %s.camkes.dbg\n" % camkes_match.group(1)
 			makefile_text.insert(line_index, "debug_server_HFILES = debug/include/EthType.h\n")
 			makefile_text.insert(line_index, "TEMPLATES := debug/templates\n")
+			for line in makefile_text:
+				for instance in debug_component_instances.keys():
+					new_line = re.sub("(%s)" % instance, r"debug_\1", line, 1, re.IGNORECASE)
+					if new_line != line:
+						new_lines += new_line
+						break
+
+			makefile_text.insert(line_index, new_lines)
 			f.seek(0)
 			for line in makefile_text:
 				f.write(line)
