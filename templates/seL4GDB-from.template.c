@@ -25,7 +25,7 @@
 /*? macros.show_includes(me.from_instance.type.includes) ?*/
 /*? macros.show_includes(me.from_interface.type.includes, '../static/components/' + me.from_instance.type.name + '/') ?*/
 
-/*- set ep = alloc(me.from_instance.name + "_debug", seL4_EndpointObject, read=True, write=True, grant=True) -*/
+/*- set ep = alloc(me.from_instance.name + "_ep_fault", seL4_EndpointObject, read=True, write=True, grant=True) -*/
 
 /*- set BUFFER_BASE = c_symbol('BUFFER_BASE') -*/
 #define /*? BUFFER_BASE ?*/ ((void*)&seL4_GetIPCBuffer()->msg[0])

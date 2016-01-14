@@ -64,13 +64,11 @@ def create_debug_camkes(project_name, component_type):
 		for line in component_file_text:
 			f.write(line)
 			if regex1.match(line):
-				f.write("  uses %s_debug debug;\n" % project_name)
-				f.write("  provides %s_debug internal;\n" % project_name)
+				f.write("  uses CAmkES_Debug fault;\n")
+				f.write("  provides CAmkES_Debug GDB_delegate;\n")
+
 # Finds the names of all debug component instances 
 # and adds them to the debug_component_instances dict
-
-# Creates a new camkes file that points to the newly
-# generated debug component camkes files
 def parse_camkes(project_name):
 	# Regex used to find component types and names
 	regex1 = re.compile(r'debug_component (\w*)\s*(\w*);')
@@ -78,8 +76,10 @@ def parse_camkes(project_name):
 	regex2 = re.compile(r'import \"(.*)\";')
 
 	global camkes_file_text
+	# Read the CAmkES file text
 	with open(paths.old_camkes % (project_name, project_name), "r+") as f:
 		camkes_file_text = f.readlines()
+	# Search for debug_component, store the types and names, then rename them to component
 	for index, line in enumerate(camkes_file_text):
 		component_search = regex1.search(line)
 		if component_search:
@@ -88,7 +88,7 @@ def parse_camkes(project_name):
 			if component_type in debug_component_types:
 				debug_component_instances[component_instance_name] = 0
 			camkes_file_text[index] = line.replace("debug_component", "component")
-					
+	# Find import of component paths and add debug version import if it is being debugged
 	for index, line in enumerate(camkes_file_text):
 		import_match = regex2.match(line)
 		if import_match:
@@ -165,9 +165,9 @@ def add_debug_files(project_name):
 	os.symlink(os.path.abspath(paths.ethtype_from), paths.ethtype_to % project_name)
 	# Definitions for everything else in debug.camkes file
 	with open(paths.debug_camkes % (project_name), "w+") as f:
-		new_line =  camkes_strings.debug_camkes_common % project_name
+		new_line =  camkes_strings.debug_camkes_common
 		for component_instance in debug_component_instances.keys():
-			new_line += camkes_strings.debug_camkes_component_connection.format(component_instance, project_name)
+			new_line += camkes_strings.debug_camkes_component_connection.format(component_instance)
 		new_line += "}\n\n"	
 		f.write(new_line)
 
@@ -187,7 +187,7 @@ def find_fault_eps(project_name):
 
 	for component_instance in debug_component_instances.keys():
 		regex1 = re.compile(r'cnode_%s {' % component_instance)
-		regex2 = re.compile(r'(0x\w*): conn\d*_%s_debug \(RWX\)' % component_instance)
+		regex2 = re.compile(r'(0x\w*): conn\d*_%s_ep_fault \(RWX\)' % component_instance)
 		for index, line in enumerate(capdl_text):
 			cnode_match = regex1.match(line)
 			if cnode_match:
@@ -221,13 +221,24 @@ def write_capdl(project_name):
 
 def main(argv):
 	os.chdir("../..")
-	project_name = "gdb_test"	
+	#project_name = "gdb_test"	
 	try:
 		opts, args = getopt.getopt(argv, "c")
 	except getopt.GetoptError as err:
 		print str(err)
 		sys.exit(1)
 	# Check for clean flag
+	if len(args) == 0:
+		print "Must provide project name"
+		sys.exit(1)
+	elif len(args) > 1:
+		print "Too many args"
+		sys.exit(1)
+	else:
+		project_name = args[0]
+		if not os.path.isdir(paths.app_folder % project_name):
+			print "Project not found: %s" % project_name
+			sys.exit(1)
 	for o, a in opts:
 		if o == "-c":
 			clean.clean_debug(project_name)

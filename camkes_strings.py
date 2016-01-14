@@ -11,7 +11,7 @@ connector seL4GDB {
   to Procedure user_inf template \"seL4GDB-to.template.c\";
 }
 
-procedure %s_debug {
+procedure CAmkES_Debug {
   void debug(in int num);
 } 
 
@@ -37,8 +37,8 @@ component debug_server {
 debug_camkes_component_connection = \
 """
   //{0} debug
-  uses {1}_debug {0}_internal;
-  provides {1}_debug {0}_debug;
+  uses CAmkES_Debug {0}_GDB_delegate;
+  provides CAmkES_Debug {0}_fault;
 """
 
 debug_server_connections = \
@@ -68,7 +68,7 @@ debug_import = \
 "import \"debug/debug.camkes\";\n"
 
 GDB_conn = \
-"    connection seL4GDB debug%s(from %s.debug, to debug.%s_debug);\n"
+"    connection seL4GDB debug%s(from %s.fault, to debug.%s_fault);\n"
 
 Debug_conn = \
-"    connection seL4Debug debug%s_internal(from debug.%s_internal, to %s.internal);\n"
+"    connection seL4Debug debug%s_delegate(from debug.%s_GDB_delegate, to %s.GDB_delegate);\n"
