@@ -19,7 +19,6 @@ debug_component_instances = dict()
 camkes_file_text = []
 capdl_text = []
 
-
 # Finds the types of components used in this project and adds them to the used_components dict
 def find_used_components(project_name):
 	# Regex used to find used components
@@ -221,12 +220,19 @@ def register_fault_eps():
 
 	for component_instance, fault_ep in debug_component_instances.iteritems():
 		regex1 = re.compile(r'(%s_tcb_.*) = tcb \((.*)\)' % component_instance)
+		regex2 = re.compile('GDB_delegate')
 		for index, line in enumerate(capdl_text):
 			tcb_decl_match = regex1.match(line)
-			if tcb_decl_match:
+			delegate_search = regex2.search(line)
+			if tcb_decl_match and not delegate_search:
 				tcb_name = tcb_decl_match.group(1)
 				tcb_params = tcb_decl_match.group(2) 
 				capdl_text[index] = "%s = tcb (%s, fault_ep: %s)\n" % (tcb_name, tcb_params, hex(fault_ep))
+
+def set_writable_inst_pages():
+	global capdl_text
+	for index, line in enumerate(capdl_text):
+		capdl_text[index] = re.sub(r"\(RX\)", r"(RWX)", line)
 
 # Write out the capdl file
 def write_capdl(project_name):
@@ -236,9 +242,10 @@ def write_capdl(project_name):
 
 def main(argv):
 	os.chdir("../..")
+	force_writable_inst_pages = False
 	#project_name = "gdb_test"	
 	try:
-		opts, args = getopt.getopt(argv, "c")
+		opts, args = getopt.getopt(argv, "cm")
 	except getopt.GetoptError as err:
 		print str(err)
 		sys.exit(1)
@@ -258,6 +265,8 @@ def main(argv):
 		if o == "-c":
 			clean.clean_debug(project_name)
 			sys.exit(0)
+		if o == "-m":
+			force_writable_inst_pages = True
 	# Find components used in this project
 	find_used_components(project_name)
 	# Parse debug components
@@ -283,6 +292,8 @@ def main(argv):
 	# Find the slots that fault eps are placed
 	find_fault_eps(project_name)
 	register_fault_eps()
+	if force_writable_inst_pages:
+		set_writable_inst_pages()
 	write_capdl(project_name)
 	os.system("make")
 

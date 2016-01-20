@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <camkes/marshal.h>
 #include <camkes/error.h>
 #include <camkes/tls.h>
@@ -34,19 +35,22 @@
 /*- set cnode = alloc_cap('cnode', my_cnode, write=True) -*/
 /*- set reply_cap_slot = alloc_cap('reply_cap_slot', None) -*/
 /*- set info = c_symbol('info') -*/
+/*- include 'GDB_delegate.h' -*/
 
-#define GDB_READ_MEM 0
-
-void read_memory(void);
+static void read_memory(void);
+static void write_memory(void);
 
 int /*? me.to_interface.name ?*/__run(void) {   
     while (1) { 
         // Receive RPC and reply
-        seL4_MessageInfo_t info = seL4_Recv(/*? ep ?*/, NULL);
+        seL4_Recv(/*? ep ?*/, NULL);
         seL4_Word instruction = seL4_GetMR(0);
         switch (instruction) {
             case GDB_READ_MEM:
                 read_memory();
+                break;
+            case GDB_WRITE_MEM:
+                write_memory();
             default:
                 continue;
         }
@@ -54,26 +58,50 @@ int /*? me.to_interface.name ?*/__run(void) {
     UNREACHABLE();
 }
 
-void read_memory(void) {
+static void read_memory(void) {
     seL4_MessageInfo_t info;
     seL4_Word addr = seL4_GetMR(1);
     seL4_Word length = seL4_GetMR(2);
     seL4_Word message = 0;
     uint8_t byte = 0;
-    printf("addr: %p\n", (void *)addr);
-    printf("length: %d\n", length);
+    printf("Reading length %d\n", length);
+    // Pack data for messaging
     for (int i = 0; i < length; i++) {
-        byte = *((char*)addr + i);
-        message |= ((seL4_Word) byte) << ((i%4)*8);
-        printf("byte: 0x%02x\n", byte & 0xFF);
+        byte = *((uint8_t*)addr + i);
+        message |= ((seL4_Word) byte) << ((24 - (i%4)*8));
         if ((i+1)%4 == 0 || i == length-1) {
             seL4_SetMR(i/4, message);
-            printf("value: %p\n", (void *) message);
             message = 0;
-        }
-        
+        }    
     }
     info = seL4_MessageInfo_new(0, 0, 0, (length + 3)/4); // ceiling
-    printf("Length = %d\n", length);
     seL4_Send(/*? ep ?*/, info);
 }
+
+static void write_memory(void) {
+    seL4_MessageInfo_t info;
+    char* addr = seL4_GetMR(1);
+    seL4_Word length = seL4_GetMR(2);
+    seL4_Word message = 0;
+    uint8_t byte = 0;
+    uint8_t data[length];
+    uint8_t data_string[2*length];
+    printf("Writing length\n", length);
+    // Unpack data from message
+    for (int i = 0; i < length; i++) {
+        if (i%4 == 0) {
+          message = seL4_GetMR(3 + i/4);
+        }
+        byte = message & 0xFF;
+        message >>= 8;   
+        data[i] = byte; 
+    }
+    for (int i = 0; i < length; i++) {
+        sprintf(&data_string[2*i], "%02X", data[i]);
+    }
+    memcpy(addr, data, length);
+    info = seL4_MessageInfo_new(0, 0, 0, 1); // ceiling
+    seL4_SetMR(0, 0);
+    seL4_Send(/*? ep ?*/, info);
+}
+
