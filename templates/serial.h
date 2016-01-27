@@ -84,4 +84,4 @@ static void clear_iir(void);
 // Serial usage
 static void serial_putchar(int c);
 static void handle_char(void);
-static void serial_irq_rcv(void* cookie);
+static void serial_irq_rcv(void *cookie);

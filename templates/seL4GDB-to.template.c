@@ -21,7 +21,7 @@
 #include <sel4debug/debug.h>
 #include <camkes/dataport.h>
 #include <utils/util.h>
-
+#include <camkes.h>
 
 
 /*? macros.show_includes(me.to_instance.type.includes) ?*/
@@ -50,6 +50,7 @@ static seL4_Word reg_pc;
 
 void /*? me.to_interface.name ?*/__init(void) {
     serial_init();
+    breakpoint_init();
 }
 
 int /*? me.to_interface.name ?*/__run(void) {
@@ -57,19 +58,20 @@ int /*? me.to_interface.name ?*/__run(void) {
     // Make connection to gdb
     while (1) { 
         seL4_Word badge;
-        seL4_MessageInfo_t info = seL4_Recv(/*? ep ?*/, &badge);
+        seL4_Recv(/*? ep ?*/, &badge);
         stream_read = true;
         reg_pc = seL4_GetMR(0);
         printf("Fault received on /*? me.to_interface.name ?*/\n");
         printf("PC %08x\n", reg_pc);
         printf("Fault address %08x\n", seL4_GetMR(1));
-        seL4_Error err = seL4_CNode_SaveCaller(/*? cnode ?*/, /*? reply_cap_slot ?*/, 32);
+        seL4_CNode_SaveCaller(/*? cnode ?*/, /*? reply_cap_slot ?*/, 32);
         if (seL4_GetMR(2)) {
             printf("Instruction fault\n");
+            handle_breakpoint();
         }
-        printf("FSR: %08x\n", seL4_GetMR(3));
         // Start accepting GDB input
         serial_irq_reg_callback(serial_irq_rcv, 0);
+        //eth_irq_reg_callback(eth_irq_rcv, 0);
         // TODO Start accepting ethernet input
         //send_reply();
     }
@@ -78,10 +80,9 @@ int /*? me.to_interface.name ?*/__run(void) {
 
 static void send_reply(void) {
     stream_read = false;
-    
     //assert(err==0);
     seL4_MessageInfo_t reply = seL4_MessageInfo_new(0, 0, 0, 1);
-    seL4_SetMR(0, 0);
+    seL4_SetMR(0, reg_pc);
     seL4_Send(/*? reply_cap_slot ?*/, reply);
 }
 
@@ -140,7 +141,8 @@ static int handle_command(char* command) {
             printf("Not implemented: write general registers\n");
             break;
         case 'H':
-            printf("Not implemented: set thread\n");
+            printf("Set thread ignored\n");
+            printf(GDB_RESPONSE_START "$OK#9a" GDB_RESPONSE_END "\n");
             break;
         case 'i':
             printf("Not implemented: cycle step\n");
@@ -166,7 +168,8 @@ static int handle_command(char* command) {
             printf("Not implemented: write register\n");
             break;
         case 'q':
-            printf("Not implemented: query\n");
+            printf("Query\n");
+            GDB_query(command);
             break;
         case 'Q':
             printf("Not implemented: set\n");
@@ -199,8 +202,12 @@ static int handle_command(char* command) {
             printf("Not implemented: remove point\n");
             break;
         case 'Z':
-            printf("Inserting point\n");
-            //GDB_insert_point(command);
+            if (command[1] == '0') {
+                printf("Inserting software breakpoint\n");
+                GDB_insert_sw_breakpoint(command);
+            } else {
+                printf("Command Not supported\n");
+            }     
             break;
         default:
             printf("Unknown command\n");

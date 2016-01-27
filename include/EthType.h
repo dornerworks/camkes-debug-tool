@@ -11,7 +11,7 @@
 #define VMM_CONFIG_ETHTYPE_H
 
 typedef struct EthDriverMMIO {
-    char buf[0x80000];
+    char data[0x20000];
 } EthDriverMMIO_t;
 
 #endif

@@ -1,5 +1,4 @@
 
-
 // Serial buffer manipulation
 static void initialise_buffer(void) {
     buf.length = 0;
@@ -207,10 +206,9 @@ static void handle_char(void) {
 
 
 
-static void serial_irq_rcv(void* cookie) {
+static void serial_irq_rcv(void *cookie) {
     clear_iir();
     if (stream_read) {
     	serial_irq_reg_callback(serial_irq_rcv, cookie);
-    }
-    
+    }  
 }

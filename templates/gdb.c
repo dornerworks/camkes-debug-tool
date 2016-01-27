@@ -1,79 +1,140 @@
+
+
 static int handle_gdb(void) {
-    // Print command
-    printf("Buffer: %.*s\n",buf.length, buf.data);
+    // Acknowledge packet
+    printf(GDB_RESPONSE_START GDB_ACK GDB_RESPONSE_END "\n");
+    // Get command and checksum
     int command_length = buf.checksum_index-1;
-    char* command_ptr = &buf.data[1];
+    char *command_ptr = &buf.data[COMMAND_START];
     char command[GETCHAR_BUFSIZ + 1] = {0};
     strncpy(command, command_ptr, command_length);
-    printf("Length: %d\n", command_length);
-    printf("Command string: %s\n", command);
-    // Print checksum
-    char* checksum = &buf.data[buf.checksum_index + 1];
-    int checksum_length = buf.length - buf.checksum_index - 1;
-    printf("Checksum: %.*s\n", checksum_length, checksum);
+    char *checksum = &buf.data[buf.checksum_index + 1];
+    // Calculate checksum of data
+    printf("command: %s\n", command);
+    unsigned char computed_checksum = compute_checksum(command, command_length);
+    unsigned char received_checksum = (unsigned char) strtol(checksum, NULL, HEX_STRING);
+    if (computed_checksum != received_checksum) {
+        printf("Checksum error, computed %x, received %x received_checksum\n",
+               computed_checksum, received_checksum);
+    }
+    // Parse the command
     handle_command(command);
     return 0;
 }
 
-static char* GDB_read_memory(char* command) {
-    char* addr_string = strtok(command, "m,");
-    char* length_string = strtok(NULL, ",");
-    printf("length_string: %s\n", length_string);
-    seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, 16);
-    seL4_Word length = (seL4_Word) strtol(length_string, NULL, 10);
-    uint8_t data_string[2*length + 1];
-    /*? me.from_instance.name ?*/_read_memory(addr, length, data_string);
-    printf("Read length %d\n", length);
-    for (int i = 0; i < 2*length; i += 2) {
-        printf("%.*s ", 2, &data_string[i]);
-        if((i+2) % 8 == 0) {
-            printf("\n");
-        }
+static unsigned char compute_checksum(char *data, int length) {
+    unsigned char checksum = 0;
+    for (int i = 0; i < length; i++) {
+        checksum += (unsigned char) data[i];
     }
-    if((length + 1) % 4 != 0) {
-        printf("\n");
+    return checksum;
+}
+
+static void handle_breakpoint(void) {
+    unsigned char instruction_bytes[BREAKPOINT_INSTRUCTION_SIZE];
+    /*? me.from_instance.name ?*/_read_memory(reg_pc, BREAKPOINT_INSTRUCTION_SIZE, (unsigned char *) &instruction_bytes);
+    if (instruction_bytes[BREAKPOINT_INSTRUCTION_INDEX] == BREAKPOINT_INSTRUCTION) {
+        curr_breakpoint = instruction_bytes[BREAKPOINT_NUM_INDEX];
+        printf("Breakpoint %d\n", curr_breakpoint);
     }
-    // TODO Send the GDB response packet over ethernet
+}
+
+static void breakpoint_init(void) {
+    for (int i = 0; i < MAX_BREAKPOINTS; i++) {
+        breakpoints[i].saved_data[0] = i + 1;
+    }
+    breakpoints[MAX_BREAKPOINTS - 1].saved_data[0] = 0;
+}
+
+static unsigned char save_breakpoint_data(unsigned char *data) {
+    unsigned char next_breakpoint = free_breakpoint_head;
+    free_breakpoint_head = breakpoints[next_breakpoint].saved_data[0];
+    memcpy(breakpoints[next_breakpoint].saved_data, data, BREAKPOINT_INSTRUCTION_SIZE);
+    return next_breakpoint;
+}
+
+// GDB read memory format:
+// m[addr],[length]
+static unsigned char *GDB_read_memory(char *command) {
+    // Get address to read from command
+    char *addr_string = strtok(command, "m,");
+    // Get num of bytes to read from command
+    char *length_string = strtok(NULL, ",");
+    // Convert strings to values
+    seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, HEX_STRING);
+    seL4_Word length = (seL4_Word) strtol(length_string, NULL, DEC_STRING);
+    // Buffer for raw data
+    unsigned char data[length];
+    // Buffer for data formatted as hex string
+    char data_string[CHAR_HEX_SIZE * length + 1];
+    // Do a read call to the GDB delegate who will read from the process on our behalf
+    /*? me.from_instance.name ?*/_read_memory(addr, length, data);
+    // Format the data
+    for (int i = 0; i < length; i++) {
+      sprintf(&data_string[CHAR_HEX_SIZE * i], "%02x", data[i]);
+    }
+    // Print hex stream of read data
+    printf(GDB_RESPONSE_START);
+    for (int i = 0; i < CHAR_HEX_SIZE * length; i += 2) {
+        printf("%.*s", CHAR_HEX_SIZE, &data_string[i]);
+    }
+    printf(GDB_RESPONSE_END);
+    printf("\n");
     return 0;
 }
 
-static char* GDB_write_memory(char* command) {
-    char* addr_string = strtok(command, "M,");
-    char* length_string = strtok(NULL, ",:");
-    char* data_string = strtok(NULL, ":");
-    printf("Data string: %s\n", data_string);
-    seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, 16);
-    seL4_Word length = (seL4_Word) strtol(length_string, NULL, 10);
-    printf("Read length %d\n", length);
-    size_t data_length = strlen(data_string);
-    if (data_length < length) {
-        length = data_length;
-    }
-    char data[length];
+// GDB write memory format:
+// M[addr],[length]:[data]
+static char *GDB_write_memory(char* command) {
+    // Get address to write to from command
+    char *addr_string = strtok(command, "M,");
+    // Get num of bytes to write from command
+    char *length_string = strtok(NULL, ",:");
+    // Get data from command
+    char *data_string = strtok(NULL, ":");
+     // Convert strings to values
+    seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, HEX_STRING);
+    seL4_Word length = (seL4_Word) strtol(length_string, NULL, DEC_STRING);
+    // Buffer for data to be written
+    unsigned char data[length];
+    memset(data, 0, length);
+    // Parse data to be written as raw hex
     for (int i = 0; i < length; i++) {
         sscanf(data_string, "%2hhx", &data[i]);
-        data_string += 2;
+        data_string += CHAR_HEX_SIZE;
     }
-    int error = /*? me.from_instance.name ?*/_write_memory(addr, length, data);
+    // Do a write call to the GDB delegate who will write to the process on our behalf
+    seL4_Word error = /*? me.from_instance.name ?*/_write_memory(addr, length, data);
     if (!error) {
-        printf("Write successful\n");
+        printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
     }
+    return NULL;
 }
 
-/*static char* GDB_insert_point(char* command) {
-    char* type = strtok(command, "Z,");
-    if (type == "0") {
-        printf("Inserting memory breakpoint\n");
-        GDB_insert_memory_breeakpoint(command)
+static char *GDB_query(char *command) {
+    char *query_type = strtok(command, "q:#");
+    if (strcmp("Supported", query_type) == 0) {// Setup argument storage
+        // TODO Parse arguments and respond what the stub supports
+        printf(GDB_RESPONSE_START GDB_EMPTY GDB_RESPONSE_END "\n");
+    } else if (strcmp("TStatus", query_type) == 0) {
+        printf(GDB_RESPONSE_START "$T0#84" GDB_RESPONSE_END "\n");
     } else {
-        printf("Point type not implemented\n");
+        printf("Unrecognised query command\n");
     }
-}*/
+    return NULL;
+}
 
-/*static char* GDB_insert_memory_breakpoint(char* command) {
-    char* addr_string = strtok(NULL, "Z,");
-    // Ignored
-    //char* kind = strtok(NULL, "Z,");
+static char *GDB_insert_sw_breakpoint(char* command) {
+    char *addr_string = strtok(command + 2, ",#");
     seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, 16);
-    /// *? me.from_instance.name ?* /_set_memory(addr, length, data);
-}*/
+    // Read data we will write over
+    unsigned char data[2];
+    /*? me.from_instance.name ?*/_read_memory(addr, 2, data);
+    unsigned char breakpoint_index = save_breakpoint_data(data);
+    unsigned char breakpoint[2] = {0xCC, breakpoint_index};
+    seL4_Word error = /*? me.from_instance.name ?*/_write_memory(addr, 2, (unsigned char *)&breakpoint);
+    if (!error) {
+        printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
+    }
+    return NULL;
+}

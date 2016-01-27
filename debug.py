@@ -140,8 +140,11 @@ def add_templates(project_name):
 # Make all the necessary modifications to the camkes file
 def modify_camkes(project_name):
 	global camkes_file_text
+	config_found = False
 	# Regex to find end of section
 	regex1 = re.compile(r'\s*}')
+	# Regex to find configuration section
+	regex2 = re.compile(r'\s*configuration\s*{')
 	# Insert the debug component import
 	camkes_file_text.insert(0 , camkes_strings.debug_import);
 	# Add component declarations and connections to top-level camkes file
@@ -161,12 +164,20 @@ def modify_camkes(project_name):
 				conn_num += 1
 			index += 1
 			# Add serial / ethernet connections
-			camkes_file_text.insert(index , camkes_strings.debug_server_io_connections);
+			camkes_file_text.insert(index, camkes_strings.debug_server_io_connections);
 			break
-	# Add configuration parameters
+	# Check if a configuration already exists
 	for index, line in enumerate(camkes_file_text):
-		if regex1.match(line):
+		if regex2.match(line):
 			camkes_file_text.insert(index + 1, camkes_strings.debug_server_config)
+			config_found = True
+			break
+	# If no config found, add new config
+	if not config_found:
+		for index, line in enumerate(camkes_file_text):
+			if regex1.match(line):
+				camkes_file_text.insert(index + 1, camkes_strings.debug_server_new_config)
+				break
 
 # Adds new debug component definitions
 def add_debug_files(project_name):

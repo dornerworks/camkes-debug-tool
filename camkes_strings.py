@@ -1,3 +1,4 @@
+import config
 
 debug_camkes_common = \
 """
@@ -30,8 +31,8 @@ component debug_server {
   include "EthType.h";
   uses IOPort serial_port;
   consumes IRQ4 serial_irq;
-  //dataport EthDriverMMIO_t mmio;
-  //consumes IRQ16 eth_irq;
+  dataport EthDriverMMIO_t mmio;
+  consumes IRQ16 eth_irq;
 """
 
 debug_camkes_component_connection = \
@@ -53,19 +54,24 @@ debug_server_io_connections = \
     component EthDriver hw_eth;
     connection seL4HardwareIOPort debug_port(from debug.serial_port, to hw_serial.serial);
     connection seL4HardwareInterrupt interrupt1(from hw_serial.irq, to debug.serial_irq);
-    //connection seL4HardwareMMIO ethdrivermmio1(from debug.mmio, to hw_eth.mmio);
-    //connection seL4HardwareInterrupt interrupt2(from hw_eth.irq, to debug.eth_irq);
+    connection seL4HardwareMMIO ethdrivermmio1(from debug.mmio, to hw_eth.mmio);
+    connection seL4HardwareInterrupt interrupt2(from hw_eth.irq, to debug.eth_irq);
 """
 
 debug_server_config = \
 """
-  configuration {
     hw_serial.serial_attributes = "0x3f8:0x3ff";
     hw_serial.irq_attributes = 4;
-    //hw_eth.mmio_attributes = "0xf1b80000:0x80000";
-    //hw_eth.irq_attributes = 16;
-  }
+    hw_eth.mmio_attributes = "%s:%s";
+    hw_eth.irq_attributes = 16;
+""" % (config.eth_mmio_addr, config.eth_mmio_size)
+
+debug_server_new_config = \
 """
+  configuration {
+    %s
+  }
+""" % debug_server_config
 
 debug_server_decl = \
 "\n    component debug_server debug;\n"

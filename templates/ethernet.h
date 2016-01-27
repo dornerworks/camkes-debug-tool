@@ -1,1 +1,1 @@
-extern volatile EthDriverMMIO_t * mmio;
+extern volatile EthDriverMMIO_t *mmio;
