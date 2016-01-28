@@ -22,7 +22,7 @@ This debug tool will provide an interface for you to debug components as you wis
 To select which components you wish to debug, declare the components as debug components in the project CAmkES file. An example is shown below, which assumes the default prefix of "_debug". This can be configured in the config.py file.
 
 ### Example CAmkES file
-'''c
+```c
 import <std_connector.camkes>;
 import "components/Sender1/Sender1.camkes";
 import "components/Receiver1/Receiver1.camkes";
@@ -34,10 +34,10 @@ assembly {
     connection seL4RPC conn1(from sender1.out1, to receiver1.in1);
   }
 }
-'''
+```
 
 ### Debugged CAmkES file
-'''c
+```c
 import "debug/debug.camkes";
 import <std_connector.camkes>;
 import "components/Sender1/Sender1.camkes";
@@ -70,7 +70,7 @@ assembly {
     sender1.serial_attributes = "0x3f8:0x3ff";
   }
 }
-'''
+```
 
 The debug tool is used by running the script debug.py. For the tool to work correctly you must ensure that the makefile is configured to build your project (such that when yo run make the project you are using is built).
 
