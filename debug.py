@@ -9,6 +9,7 @@ import shutil
 import camkes_strings
 import paths
 import clean
+import config
 
 fault_slots = dict()
 used_components = dict()
@@ -17,7 +18,6 @@ debug_component_paths = dict()
 debug_component_instances = dict()
 camkes_file_text = []
 capdl_text = []
-
 
 # Finds the types of components used in this project and adds them to the used_components dict
 def find_used_components(project_name):
@@ -39,7 +39,7 @@ def find_used_components(project_name):
 def parse_debug_components(project_name):
 	debug_found = False
 
-	regex1 = re.compile(r'\s*debug_component\s*(\w*) .*;')
+	regex1 = re.compile(r'\s*%scomponent\s*(\w*) .*;' % config.debug_component_flag)
 	with open(paths.old_camkes % (project_name, project_name)) as f:
 		for line in f.readlines():
 			m = regex1.match(line)
@@ -63,11 +63,10 @@ def create_debug_camkes(project_name, component_type):
 	with open(paths.debugged_component % (project_name, component_type, component_type), 'w+') as f:
 		for line in component_file_text:
 			if regex1.match(line):
-				debug_component_type = "debug_" + component_type
+				debug_component_type = config.debug_component_type_prefix + component_type
 				line = line.replace(component_type, debug_component_type)
 				f.write(line)
-				f.write("  uses CAmkES_Debug fault;\n")
-				f.write("  provides CAmkES_Debug GDB_delegate;\n")
+				f.write(camkes_strings.debug_server_component_connection)
 			else:
 				f.write(line)
 
@@ -75,7 +74,7 @@ def create_debug_camkes(project_name, component_type):
 # and adds them to the debug_component_instances dict
 def parse_camkes(project_name):
 	# Regex used to find component types and names
-	regex1 = re.compile(r'debug_component (\w*)\s*(\w*);')
+	regex1 = re.compile(r'%scomponent (\w*)\s*(\w*);' % config.debug_component_flag)
 	# Regex used to find component imports
 	regex2 = re.compile(r'import \"(.*)\";')
 
@@ -89,10 +88,10 @@ def parse_camkes(project_name):
 		if component_search:
 			component_type = component_search.group(1)
 			component_instance_name = component_search.group(2)
-			debug_component_type = "debug_" + component_type
+			debug_component_type = config.debug_component_type_prefix + component_type
 			if component_type in debug_component_types:
 				debug_component_instances[component_instance_name] = 0
-			camkes_file_text[index] = line.replace("debug_component", "component")
+			camkes_file_text[index] = line.replace("%scomponent" % (config.debug_component_flag), "component")
 			camkes_file_text[index] = camkes_file_text[index].replace(component_type, debug_component_type)
 	# Find import of component paths and add debug version import if it is being debugged
 	for index in range(0, len(camkes_file_text)):
@@ -124,7 +123,7 @@ def modify_makefile(project_name):
 			makefile_text.insert(line_index, "TEMPLATES := debug/templates\n")
 			for line in makefile_text:
 				for instance in debug_component_instances.keys():
-					new_line = re.sub("(%s)" % instance, r"debug_\1", line, 1, re.IGNORECASE)
+					new_line = re.sub("(%s)" % instance, r"%s\1" % config.debug_component_type_prefix, line, 1, re.IGNORECASE)
 					if new_line != line:
 						new_lines += new_line
 						break
@@ -141,8 +140,11 @@ def add_templates(project_name):
 # Make all the necessary modifications to the camkes file
 def modify_camkes(project_name):
 	global camkes_file_text
+	config_found = False
 	# Regex to find end of section
 	regex1 = re.compile(r'\s*}')
+	# Regex to find configuration section
+	regex2 = re.compile(r'\s*configuration\s*{')
 	# Insert the debug component import
 	camkes_file_text.insert(0 , camkes_strings.debug_import);
 	# Add component declarations and connections to top-level camkes file
@@ -162,12 +164,20 @@ def modify_camkes(project_name):
 				conn_num += 1
 			index += 1
 			# Add serial / ethernet connections
-			camkes_file_text.insert(index , camkes_strings.debug_server_connections);
+			camkes_file_text.insert(index, camkes_strings.debug_server_io_connections);
 			break
-	# Add configuration parameters
+	# Check if a configuration already exists
 	for index, line in enumerate(camkes_file_text):
-		if regex1.match(line):
+		if regex2.match(line):
 			camkes_file_text.insert(index + 1, camkes_strings.debug_server_config)
+			config_found = True
+			break
+	# If no config found, add new config
+	if not config_found:
+		for index, line in enumerate(camkes_file_text):
+			if regex1.match(line):
+				camkes_file_text.insert(index + 1, camkes_strings.debug_server_new_config)
+				break
 
 # Adds new debug component definitions
 def add_debug_files(project_name):
@@ -221,12 +231,19 @@ def register_fault_eps():
 
 	for component_instance, fault_ep in debug_component_instances.iteritems():
 		regex1 = re.compile(r'(%s_tcb_.*) = tcb \((.*)\)' % component_instance)
+		regex2 = re.compile('GDB_delegate')
 		for index, line in enumerate(capdl_text):
 			tcb_decl_match = regex1.match(line)
-			if tcb_decl_match:
+			delegate_search = regex2.search(line)
+			if tcb_decl_match and not delegate_search:
 				tcb_name = tcb_decl_match.group(1)
 				tcb_params = tcb_decl_match.group(2) 
 				capdl_text[index] = "%s = tcb (%s, fault_ep: %s)\n" % (tcb_name, tcb_params, hex(fault_ep))
+
+def set_writable_inst_pages():
+	global capdl_text
+	for index, line in enumerate(capdl_text):
+		capdl_text[index] = re.sub(r"\(RX\)", r"(RWX)", line)
 
 # Write out the capdl file
 def write_capdl(project_name):
@@ -236,9 +253,10 @@ def write_capdl(project_name):
 
 def main(argv):
 	os.chdir("../..")
+	force_writable_inst_pages = False
 	#project_name = "gdb_test"	
 	try:
-		opts, args = getopt.getopt(argv, "c")
+		opts, args = getopt.getopt(argv, "cm")
 	except getopt.GetoptError as err:
 		print str(err)
 		sys.exit(1)
@@ -258,6 +276,8 @@ def main(argv):
 		if o == "-c":
 			clean.clean_debug(project_name)
 			sys.exit(0)
+		if o == "-m":
+			force_writable_inst_pages = True
 	# Find components used in this project
 	find_used_components(project_name)
 	# Parse debug components
@@ -283,6 +303,8 @@ def main(argv):
 	# Find the slots that fault eps are placed
 	find_fault_eps(project_name)
 	register_fault_eps()
+	if force_writable_inst_pages:
+		set_writable_inst_pages()
 	write_capdl(project_name)
 	os.system("make")
 
