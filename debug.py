@@ -119,7 +119,7 @@ def modify_makefile(project_name):
 				camkes_match = regex1.match(makefile_text[line_index])
 				if camkes_match:
 					makefile_text[line_index] = "ADL := %s.camkes.dbg\n" % camkes_match.group(1)
-			makefile_text.insert(line_index, "debug_server_HFILES = debug/include/EthType.h\n")
+			#makefile_text.insert(line_index, "debug_server_HFILES = debug/include/EthType.h\n")
 			makefile_text.insert(line_index, "TEMPLATES := debug/templates\n")
 			for index, line in enumerate(makefile_text):
 				for instance in debug_component_instances.keys():
@@ -194,7 +194,7 @@ def add_debug_files(project_name):
 	if not os.path.exists(paths.debug_include % project_name):
 		os.mkdir(paths.debug_include  % project_name)
 	# Add definition for ethernet buffer
-	os.symlink(os.path.abspath(paths.ethtype_from), paths.ethtype_to % project_name)
+	#os.symlink(os.path.abspath(paths.ethtype_from), paths.ethtype_to % project_name)
 	# Definitions for everything else in debug.camkes file
 	with open(paths.debug_camkes % (project_name), "w+") as f:
 		new_line =  camkes_strings.debug_camkes_common
