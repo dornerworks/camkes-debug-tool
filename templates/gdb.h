@@ -51,12 +51,12 @@ static void restore_breakpoint_data(unsigned char breakpoint_num);
 
 
 
-static unsigned char *GDB_read_memory(char *command);
-static char *GDB_write_memory(char *command);
-static char *GDB_query(char *command);
-static char *GDB_insert_sw_breakpoint(char *command);
-
-
+static void GDB_read_memory(char *command);
+static void GDB_write_memory(char *command);
+static void GDB_query(char *command);
+static void GDB_insert_sw_breakpoint(char *command);
+static void GDB_set_thread(char *command);
+static void GDB_halt_reason(char *command);
 
 extern seL4_Word /*? me.from_instance.name ?*/_write_memory(seL4_Word addr, seL4_Word length, 
 															unsigned char *data);

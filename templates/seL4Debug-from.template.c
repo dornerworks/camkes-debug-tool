@@ -15,12 +15,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <camkes/marshal.h>
-#include <camkes/dataport.h>
-#include <camkes/error.h>
-#include <camkes/timing.h>
-#include <camkes/tls.h>
-#include <sync/sem-bare.h>
 #include <camkes.h>
 
 

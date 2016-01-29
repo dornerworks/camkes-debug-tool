@@ -15,12 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <camkes/marshal.h>
-#include <camkes/error.h>
-#include <camkes/tls.h>
 #include <sel4/sel4.h>
 #include <sel4debug/debug.h>
-#include <camkes/dataport.h>
 #include <utils/util.h>
 #include <camkes.h>
 

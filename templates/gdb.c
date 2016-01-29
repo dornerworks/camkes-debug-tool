@@ -69,7 +69,7 @@ static void restore_breakpoint_data(unsigned char breakpoint_num) {
 
 // GDB read memory format:
 // m[addr],[length]
-static unsigned char *GDB_read_memory(char *command) {
+static void GDB_read_memory(char *command) {
     // Get address to read from command
     char *addr_string = strtok(command, "m,");
     // Get num of bytes to read from command
@@ -99,7 +99,7 @@ static unsigned char *GDB_read_memory(char *command) {
 
 // GDB write memory format:
 // M[addr],[length]:[data]
-static char *GDB_write_memory(char* command) {
+static void GDB_write_memory(char* command) {
     // Get address to write to from command
     char *addr_string = strtok(command, "M,");
     // Get num of bytes to write from command
@@ -125,20 +125,26 @@ static char *GDB_write_memory(char* command) {
     return NULL;
 }
 
-static char *GDB_query(char *command) {
+static void GDB_query(char *command) {
     char *query_type = strtok(command, "q:#");
     if (strcmp("Supported", query_type) == 0) {// Setup argument storage
         // TODO Parse arguments and respond what the stub supports
         printf(GDB_RESPONSE_START GDB_EMPTY GDB_RESPONSE_END "\n");
     } else if (strcmp("TStatus", query_type) == 0) {
         printf(GDB_RESPONSE_START "$T0#84" GDB_RESPONSE_END "\n");
+    } else if (strcmp("TfV", query_type) == 0) {
+        printf(GDB_RESPONSE_START "$#00" GDB_RESPONSE_END "\n");
+    } else if (strcmp("C", query_type) == 0) {
+        printf(GDB_RESPONSE_START "$QC1#c5" GDB_RESPONSE_END "\n");
+    } else if (strcmp("Attached", query_type) == 0) {
+        printf(GDB_RESPONSE_START "$1#31" GDB_RESPONSE_END "\n");
     } else {
         printf("Unrecognised query command\n");
     }
     return NULL;
 }
 
-static char *GDB_insert_sw_breakpoint(char* command) {
+static void GDB_insert_sw_breakpoint(char* command) {
     char *addr_string = strtok(command + 2, ",#");
     seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, 16);
     unsigned char breakpoint_index = save_breakpoint_data(addr);
@@ -148,4 +154,12 @@ static char *GDB_insert_sw_breakpoint(char* command) {
         printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
     }
     return NULL;
+}
+
+static void GDB_set_thread(char *command) {
+    printf(GDB_RESPONSE_START "$OK#9a" GDB_RESPONSE_END "\n");
+}   
+
+static void GDB_halt_reason(char *command) {
+    printf(GDB_RESPONSE_START "$S05#b8" GDB_RESPONSE_END "\n");
 }

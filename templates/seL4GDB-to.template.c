@@ -14,12 +14,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <camkes/marshal.h>
-#include <camkes/error.h>
-#include <camkes/tls.h>
 #include <sel4/sel4.h>
 #include <sel4debug/debug.h>
-#include <camkes/dataport.h>
 #include <utils/util.h>
 #include <camkes.h>
 
@@ -142,7 +138,7 @@ static int handle_command(char* command) {
             break;
         case 'H':
             printf("Set thread ignored\n");
-            printf(GDB_RESPONSE_START "$OK#9a" GDB_RESPONSE_END "\n");
+            GDB_set_thread(command);
             break;
         case 'i':
             printf("Not implemented: cycle step\n");
