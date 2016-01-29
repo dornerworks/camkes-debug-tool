@@ -94,7 +94,6 @@ static void GDB_read_memory(char *command) {
     }
     printf(GDB_RESPONSE_END);
     printf("\n");
-    return 0;
 }
 
 // GDB write memory format:
@@ -122,7 +121,6 @@ static void GDB_write_memory(char* command) {
     if (!error) {
         printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
     }
-    return NULL;
 }
 
 static void GDB_query(char *command) {
@@ -141,7 +139,6 @@ static void GDB_query(char *command) {
     } else {
         printf("Unrecognised query command\n");
     }
-    return NULL;
 }
 
 static void GDB_insert_sw_breakpoint(char* command) {
@@ -153,7 +150,6 @@ static void GDB_insert_sw_breakpoint(char* command) {
     if (!error) {
         printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
     }
-    return NULL;
 }
 
 static void GDB_set_thread(char *command) {

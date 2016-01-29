@@ -121,10 +121,17 @@ def modify_makefile(project_name):
 					makefile_text[line_index] = "ADL := %s.camkes.dbg\n" % camkes_match.group(1)
 			makefile_text.insert(line_index, "debug_server_HFILES = debug/include/EthType.h\n")
 			makefile_text.insert(line_index, "TEMPLATES := debug/templates\n")
-			for line in makefile_text:
+			for index, line in enumerate(makefile_text):
 				for instance in debug_component_instances.keys():
-					new_line = re.sub("(%s)" % instance, r"%s\1" % config.debug_component_type_prefix, line, 1, re.IGNORECASE)
+					new_line = re.sub("^(%s)" % instance, r"%s\1" % config.debug_component_type_prefix, line, 1, re.IGNORECASE)
+					
 					if new_line != line:
+						index += 1
+						regex2 = re.compile(r"\\$")
+						while regex2.search(makefile_text[index]):
+							new_line += makefile_text[index]
+							index += 1
+						new_line += makefile_text[index]
 						new_lines += new_line
 						break
 
