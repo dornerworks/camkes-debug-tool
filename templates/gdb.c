@@ -31,11 +31,13 @@ static unsigned char compute_checksum(char *data, int length) {
 }
 
 static void handle_breakpoint(void) {
-    unsigned char instruction_bytes[BREAKPOINT_INSTRUCTION_SIZE];
-    /*? me.from_instance.name ?*/_read_memory(reg_pc, BREAKPOINT_INSTRUCTION_SIZE, (unsigned char *) &instruction_bytes);
-    if (instruction_bytes[BREAKPOINT_INSTRUCTION_INDEX] == BREAKPOINT_INSTRUCTION) {
-        curr_breakpoint = instruction_bytes[BREAKPOINT_NUM_INDEX];
+    unsigned char inst_data[BREAKPOINT_INSTRUCTION_SIZE];
+    /*? me.from_instance.name ?*/_read_memory(reg_pc, BREAKPOINT_INSTRUCTION_SIZE,
+                                              (unsigned char *) &inst_data);
+    if (inst_data[BREAKPOINT_INSTRUCTION_INDEX] == BREAKPOINT_INSTRUCTION) {
+        curr_breakpoint = inst_data[BREAKPOINT_NUM_INDEX];
         printf("Breakpoint %d\n", curr_breakpoint);
+        restore_breakpoint_data(curr_breakpoint);
     }
 }
 
@@ -46,11 +48,23 @@ static void breakpoint_init(void) {
     breakpoints[MAX_BREAKPOINTS - 1].saved_data[0] = 0;
 }
 
-static unsigned char save_breakpoint_data(unsigned char *data) {
+static unsigned char save_breakpoint_data(seL4_Word addr) {
+    // Read data we will write over
+    unsigned char data[2];
+    /*? me.from_instance.name ?*/_read_memory(addr, BREAKPOINT_INSTRUCTION_SIZE , data);
     unsigned char next_breakpoint = free_breakpoint_head;
     free_breakpoint_head = breakpoints[next_breakpoint].saved_data[0];
     memcpy(breakpoints[next_breakpoint].saved_data, data, BREAKPOINT_INSTRUCTION_SIZE);
     return next_breakpoint;
+}
+
+static void restore_breakpoint_data(unsigned char breakpoint_num) {
+    unsigned char *inst_data = &(breakpoints[breakpoint_num].saved_data);
+    /*? me.from_instance.name ?*/_write_memory(reg_pc, BREAKPOINT_INSTRUCTION_SIZE, inst_data);
+    for (int i = 0; i < BREAKPOINT_INSTRUCTION_SIZE; i++) {
+        breakpoints[breakpoint_num].saved_data[i] =  0;
+    }
+    breakpoints[free_breakpoint_tail].saved_data[0] = breakpoint_num;
 }
 
 // GDB read memory format:
@@ -127,10 +141,7 @@ static char *GDB_query(char *command) {
 static char *GDB_insert_sw_breakpoint(char* command) {
     char *addr_string = strtok(command + 2, ",#");
     seL4_Word addr = (seL4_Word) strtol(addr_string, NULL, 16);
-    // Read data we will write over
-    unsigned char data[2];
-    /*? me.from_instance.name ?*/_read_memory(addr, 2, data);
-    unsigned char breakpoint_index = save_breakpoint_data(data);
+    unsigned char breakpoint_index = save_breakpoint_data(addr);
     unsigned char breakpoint[2] = {0xCC, breakpoint_index};
     seL4_Word error = /*? me.from_instance.name ?*/_write_memory(addr, 2, (unsigned char *)&breakpoint);
     if (!error) {

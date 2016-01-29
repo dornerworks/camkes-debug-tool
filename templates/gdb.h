@@ -28,7 +28,7 @@ typedef struct gdb_buffer {
 } gdb_buffer_t;
 
 typedef struct breakpoint_data {
-    unsigned char saved_data[2];
+    unsigned char saved_data[BREAKPOINT_INSTRUCTION_SIZE];
 } breakpoint_data_t;
 
 gdb_buffer_t buf;
@@ -41,13 +41,13 @@ static void handle_breakpoint(void);
 static unsigned char compute_checksum(char *data, int length);
 
 static breakpoint_data_t breakpoints[MAX_BREAKPOINTS];
-static char free_breakpoint_head = 1;
-//static char free_breakpoint_tail = 255;
-static char curr_breakpoint = NO_BREAKPOINT;
+static unsigned char free_breakpoint_head = 1;
+static unsigned char free_breakpoint_tail = 255;
+static unsigned char curr_breakpoint = NO_BREAKPOINT;
 
 static void breakpoint_init(void);
-static unsigned char save_breakpoint_data(unsigned char *data);
-//static void free_breakpoint_data(char);
+static unsigned char save_breakpoint_data(seL4_Word addr);
+static void restore_breakpoint_data(unsigned char breakpoint_num);
 
 
 
