@@ -11,27 +11,4 @@ $m10012f,12#56
 $Z010012f#e4
 $m10012f,12#56
 $c#63
-
-$OK#9a
-
-
-+$#00
-+$OK#9a
-+$T0;tnotrun:0#43
-+$#00
-+$S05#b8
-+$OK#9a
-+$QC1#c5
-+$1#31
-+$xxxxxxxxxxxxxxxx#80
-+$00000000#80
-
-$qSupported:multiprocess+;xmlRegisters=i386;qRelocInsn+#b5 -> +$#00
-$Hg0 -> $OK#9a
-$qTStatus -> $T0#84
-$qTfV -> $#00
-$? ->    $S05#b8
-$Hc-1 -> $OK#9a
-$qC   -> $QC1#c5
-$qAttached#8f -> +$1#31
-$g -> xxxxxxxxxxxxxxxx
+$c#63
