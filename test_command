@@ -1,14 +1,30 @@
+// Most of these are initialisation functions called by GDB on connection
+
+// Request for supported functionality
 $qSupported:multiprocess+;xmlRegisters=i386;qRelocInsn+#b5
+// Set thread
 $Hg0#df
+// Get thread status
 $qTStatus#49
+// Request trace state variables
 $qTfV#81
+// Reason for stopping
 $?#3f
+// Set thread
 $Hc-1#09
 
+// Look at sender1.c to see what is happening
+// Read 4 bytes at 100127 (location of int *a in memory)
 $m100127,4#f8
+// Write 4 bytes at 100127 (change int *a to buffer)
 $M100127,4,1e2c23#94
+// Read next instruction
 $m10012f,12#56
+// Set breakpoint
 $Z010012f#e4
+// Read next instruction (you can see the breakpoint)
 $m10012f,12#56
+// Run, hit breakpoint
 $c#63
+// Run again, program finishes
 $c#63
