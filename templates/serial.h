@@ -1,6 +1,6 @@
 // Configuration
 #define BAUD_RATE 115200
-
+#define MAX_PRINTF_LENGTH 256
 // Register layout. Done by offset from base port
 #define THR_ADDR (0)
 #define RBR_ADDR (0)
@@ -85,3 +85,5 @@ static void clear_iir(void);
 static void serial_putchar(int c);
 static void handle_char(void);
 static void serial_irq_rcv(void *cookie);
+
+static void gdb_printf(const char *format, ...);

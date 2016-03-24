@@ -21,7 +21,6 @@
 /*? macros.show_includes(me.from_instance.type.includes) ?*/
 /*? macros.show_includes(me.from_interface.type.includes, '../static/components/' + me.from_instance.type.name + '/') ?*/
 /*- set ep = alloc(me.to_instance.name + "_ep_GDB_delegate", seL4_EndpointObject, read=True, write=True) -*/
-
 /*- set BUFFER_BASE = c_symbol('BUFFER_BASE') -*/
 #define /*? BUFFER_BASE ?*/ ((void *)&seL4_GetIPCBuffer()->msg[0])
 
@@ -36,12 +35,11 @@ int /*? me.from_interface.name ?*/__run(void) {
 }
 
 unsigned char * /*? me.to_instance.name ?*/_read_memory(seL4_Word addr, seL4_Word length, unsigned char *data) {
-// Setup arguments for call
+    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, DELEGATE_READ_NUM_ARGS);
+    // Setup arguments for call
     seL4_SetMR(DELEGATE_COMMAND_REG, GDB_READ_MEM);
     seL4_SetMR(DELEGATE_ARG(0), addr);
     seL4_SetMR(DELEGATE_ARG(1), length);
-    // Generate message
-    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, DELEGATE_READ_NUM_ARGS);
     // Send
     seL4_Send(/*? ep ?*/, info);
     info = seL4_Recv(/*? ep ?*/, NULL);
@@ -89,4 +87,21 @@ seL4_Word /*? me.to_instance.name ?*/_write_memory(seL4_Word addr, seL4_Word len
     seL4_Send(/*? ep ?*/, info);
     info = seL4_Recv(/*? ep ?*/, NULL);
     return seL4_GetMR(0);
+}
+
+void /*? me.to_instance.name ?*/_read_registers(seL4_Word tcb_cap, seL4_Word registers[]) {
+    // Generate message
+    seL4_Word length;
+    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, DELEGATE_REG_READ_NUM_ARGS);
+    // Setup arguments for call
+    seL4_SetMR(DELEGATE_COMMAND_REG, GDB_READ_REG);
+    seL4_SetMR(DELEGATE_ARG(0), tcb_cap);
+    // Send
+    seL4_Send(/*? ep ?*/, info);
+    info = seL4_Recv(/*? ep ?*/, NULL);
+    // Get data from message
+    length = seL4_MessageInfo_get_length(info);
+    for (int i = 0; i < length; i++) {
+        registers[i] = seL4_GetMR(i);    
+    }
 }

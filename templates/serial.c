@@ -212,3 +212,14 @@ static void serial_irq_rcv(void *cookie) {
     	serial_irq_reg_callback(serial_irq_rcv, cookie);
     }  
 }
+
+static void gdb_printf(const char *format, ...) {
+    va_list arg;
+    char text_buf[MAX_PRINTF_LENGTH];
+    va_start(arg, format);
+    vsnprintf(text_buf, MAX_PRINTF_LENGTH, format, arg);
+    va_end(arg);
+    for (int i = 0; i < strlen(text_buf); i++) {
+        serial_putchar(text_buf[i]);
+    }
+}

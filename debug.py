@@ -209,13 +209,15 @@ def write_camkes(project_name):
 		for line in camkes_file_text:
 			f.write(line)
 
+def read_capdl(project_name):
+	global capdl_text
+	with open("build/x86/pc99/%s/%s.cdl" % (project_name, project_name)) as f:
+		capdl_text = f.readlines();
+
 # Find fault ep slots in the capDL
 def find_fault_eps(project_name):
 	global debug_component_instances
 	global capdl_text
-
-	with open("build/x86/pc99/%s/%s.cdl" % (project_name, project_name)) as f:
-		capdl_text = f.readlines();
 
 	for component_instance in debug_component_instances.keys():
 		regex1 = re.compile(r'cnode_%s {' % component_instance)
@@ -254,6 +256,7 @@ def set_writable_inst_pages():
 
 # Write out the capdl file
 def write_capdl(project_name):
+	global capdl_text
 	with open("build/x86/pc99/%s/%s.cdl" % (project_name, project_name), 'w+') as f:
 		for line in capdl_text:
 			f.write(line)
@@ -306,14 +309,17 @@ def main(argv):
 	add_templates(project_name)
 	os.system("make -j8 libmuslc")
 	os.system("make")
-	os.system("make")
 	# Find the slots that fault eps are placed
-	find_fault_eps(project_name)
-	register_fault_eps()
+	#find_fault_eps(project_name)
+	#register_fault_eps()
+
 	if force_writable_inst_pages:
+		os.system("make")
+		read_capdl(project_name)
 		set_writable_inst_pages()
-	write_capdl(project_name)
-	os.system("make")
+		write_capdl(project_name)
+		os.system("make")
+		os.system("make")
 
 if __name__ == "__main__":
 	main(sys.argv[1:])

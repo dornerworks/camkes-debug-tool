@@ -1,7 +1,7 @@
 #define NO_BREAKPOINT -1
 #define USER_BREAKPOINT 0
 #define BREAKPOINT_INSTRUCTION 0xCC
-
+#define DEBUG true
 #define MAX_ARGS 20
 #define MAX_BREAKPOINTS 256
 #define BREAKPOINT_INSTRUCTION_SIZE     2   
@@ -12,8 +12,10 @@
 #define DEC_STRING						10
 #define CHAR_HEX_SIZE					2
 // Colour coding for response packets from GDB stub
-#define GDB_RESPONSE_START      "\x1b[31m"
-#define GDB_RESPONSE_END        "\x1b[0m"
+#define GDB_RESPONSE_START 		  ""
+#define GDB_RESPONSE_END		  ""
+//#define GDB_RESPONSE_START      "\x1b[31m"
+//#define GDB_RESPONSE_END        "\x1b[0m"
 
 // Ok packet for GDB
 #define GDB_ACK                 "+"
@@ -57,8 +59,10 @@ static void GDB_query(char *command);
 static void GDB_insert_sw_breakpoint(char *command);
 static void GDB_set_thread(char *command);
 static void GDB_halt_reason(char *command);
+static void GDB_read_general_registers(char* command);
 
 extern seL4_Word /*? me.from_instance.name ?*/_write_memory(seL4_Word addr, seL4_Word length, 
 															unsigned char *data);
 extern unsigned char* /*? me.from_instance.name ?*/_read_memory(seL4_Word addr, seL4_Word length, 
 																unsigned char *data);
+extern void /*? me.from_instance.name ?*/_read_registers(seL4_Word tcb_cap, seL4_Word registers[]);

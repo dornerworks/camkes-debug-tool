@@ -2,7 +2,7 @@
 
 static int handle_gdb(void) {
     // Acknowledge packet
-    printf(GDB_RESPONSE_START GDB_ACK GDB_RESPONSE_END "\n");
+    gdb_printf(GDB_RESPONSE_START GDB_ACK GDB_RESPONSE_END "\n");
     // Get command and checksum
     int command_length = buf.checksum_index-1;
     char *command_ptr = &buf.data[COMMAND_START];
@@ -10,11 +10,11 @@ static int handle_gdb(void) {
     strncpy(command, command_ptr, command_length);
     char *checksum = &buf.data[buf.checksum_index + 1];
     // Calculate checksum of data
-    printf("command: %s\n", command);
+    if (DEBUG) printf("command: %s\n", command);
     unsigned char computed_checksum = compute_checksum(command, command_length);
     unsigned char received_checksum = (unsigned char) strtol(checksum, NULL, HEX_STRING);
     if (computed_checksum != received_checksum) {
-        printf("Checksum error, computed %x, received %x received_checksum\n",
+        if (DEBUG) printf("Checksum error, computed %x, received %x received_checksum\n",
                computed_checksum, received_checksum);
     }
     // Parse the command
@@ -36,7 +36,7 @@ static void handle_breakpoint(void) {
                                               (unsigned char *) &inst_data);
     if (inst_data[BREAKPOINT_INSTRUCTION_INDEX] == BREAKPOINT_INSTRUCTION) {
         curr_breakpoint = inst_data[BREAKPOINT_NUM_INDEX];
-        printf("Breakpoint %d\n", curr_breakpoint);
+        if (DEBUG) printf("Breakpoint %d\n", curr_breakpoint);
         restore_breakpoint_data(curr_breakpoint);
     }
 }
@@ -59,13 +59,14 @@ static unsigned char save_breakpoint_data(seL4_Word addr) {
 }
 
 static void restore_breakpoint_data(unsigned char breakpoint_num) {
-    unsigned char *inst_data = &(breakpoints[breakpoint_num].saved_data);
+    unsigned char* inst_data = breakpoints[breakpoint_num].saved_data;
     /*? me.from_instance.name ?*/_write_memory(reg_pc, BREAKPOINT_INSTRUCTION_SIZE, inst_data);
     for (int i = 0; i < BREAKPOINT_INSTRUCTION_SIZE; i++) {
         breakpoints[breakpoint_num].saved_data[i] =  0;
     }
     breakpoints[free_breakpoint_tail].saved_data[0] = breakpoint_num;
 }
+
 
 // GDB read memory format:
 // m[addr],[length]
@@ -81,19 +82,21 @@ static void GDB_read_memory(char *command) {
     unsigned char data[length];
     // Buffer for data formatted as hex string
     char data_string[CHAR_HEX_SIZE * length + 1];
+    printf("length: %d\n", length);
     // Do a read call to the GDB delegate who will read from the process on our behalf
     /*? me.from_instance.name ?*/_read_memory(addr, length, data);
     // Format the data
     for (int i = 0; i < length; i++) {
       sprintf(&data_string[CHAR_HEX_SIZE * i], "%02x", data[i]);
     }
+    printf("TEST\n");
     // Print hex stream of read data
-    printf(GDB_RESPONSE_START);
+    gdb_printf(GDB_RESPONSE_START);
     for (int i = 0; i < CHAR_HEX_SIZE * length; i += 2) {
-        printf("%.*s", CHAR_HEX_SIZE, &data_string[i]);
+        gdb_printf("%02x", data[i]);
     }
-    printf(GDB_RESPONSE_END);
-    printf("\n");
+    gdb_printf(GDB_RESPONSE_END);
+    gdb_printf("\n");
 }
 
 // GDB write memory format:
@@ -119,7 +122,7 @@ static void GDB_write_memory(char* command) {
     // Do a write call to the GDB delegate who will write to the process on our behalf
     seL4_Word error = /*? me.from_instance.name ?*/_write_memory(addr, length, data);
     if (!error) {
-        printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
+        gdb_printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
     }
 }
 
@@ -127,15 +130,19 @@ static void GDB_query(char *command) {
     char *query_type = strtok(command, "q:#");
     if (strcmp("Supported", query_type) == 0) {// Setup argument storage
         // TODO Parse arguments and respond what the stub supports
-        printf(GDB_RESPONSE_START GDB_EMPTY GDB_RESPONSE_END "\n");
+        gdb_printf(GDB_RESPONSE_START "$PacketSize=100#f1" GDB_RESPONSE_END "\n");
     } else if (strcmp("TStatus", query_type) == 0) {
-        printf(GDB_RESPONSE_START "$T0#84" GDB_RESPONSE_END "\n");
+        gdb_printf(GDB_RESPONSE_START "$#00" GDB_RESPONSE_END "\n");
     } else if (strcmp("TfV", query_type) == 0) {
-        printf(GDB_RESPONSE_START "$#00" GDB_RESPONSE_END "\n");
+        gdb_printf(GDB_RESPONSE_START "$#00" GDB_RESPONSE_END "\n");
     } else if (strcmp("C", query_type) == 0) {
-        printf(GDB_RESPONSE_START "$QC1#c5" GDB_RESPONSE_END "\n");
+        gdb_printf(GDB_RESPONSE_START "$QC1#c5" GDB_RESPONSE_END "\n");
     } else if (strcmp("Attached", query_type) == 0) {
-        printf(GDB_RESPONSE_START "$1#31" GDB_RESPONSE_END "\n");
+        gdb_printf(GDB_RESPONSE_START "$#00" GDB_RESPONSE_END "\n");
+    } else if (strcmp("fThreadInfo", query_type) == 0) {
+        gdb_printf(GDB_RESPONSE_START "$m01#ce" GDB_RESPONSE_END "\n");
+    } else if (strcmp("sThreadInfo", query_type) == 0) {
+        gdb_printf(GDB_RESPONSE_START "$l#6c" GDB_RESPONSE_END "\n");
     } else {
         printf("Unrecognised query command\n");
     }
@@ -148,14 +155,25 @@ static void GDB_insert_sw_breakpoint(char* command) {
     unsigned char breakpoint[2] = {0xCC, breakpoint_index};
     seL4_Word error = /*? me.from_instance.name ?*/_write_memory(addr, 2, (unsigned char *)&breakpoint);
     if (!error) {
-        printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
+        gdb_printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
     }
 }
 
 static void GDB_set_thread(char *command) {
-    printf(GDB_RESPONSE_START "$OK#9a" GDB_RESPONSE_END "\n");
+    gdb_printf(GDB_RESPONSE_START "$OK#9a" GDB_RESPONSE_END "\n");
 }   
 
 static void GDB_halt_reason(char *command) {
-    printf(GDB_RESPONSE_START "$S05#b8" GDB_RESPONSE_END "\n");
+    gdb_printf(GDB_RESPONSE_START "$T05thread:01;#07" GDB_RESPONSE_END "\n");
 }
+
+static void GDB_read_general_registers(char* command) {
+    int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
+    seL4_Word registers[num_regs];
+    /*? me.from_instance.name ?*/_read_registers(badge, registers);
+    for (int i = 0; i < num_regs; i++) {
+        gdb_printf("%08x", registers[i]);
+    }
+    
+}
+
