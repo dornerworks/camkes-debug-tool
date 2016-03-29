@@ -10,11 +10,11 @@ static int handle_gdb(void) {
     strncpy(command, command_ptr, command_length);
     char *checksum = &buf.data[buf.checksum_index + 1];
     // Calculate checksum of data
-    if (DEBUG) printf("command: %s\n", command);
+    if (DEBUG_PRINT) printf("command: %s\n", command);
     unsigned char computed_checksum = compute_checksum(command, command_length);
     unsigned char received_checksum = (unsigned char) strtol(checksum, NULL, HEX_STRING);
     if (computed_checksum != received_checksum) {
-        if (DEBUG) printf("Checksum error, computed %x, received %x received_checksum\n",
+        if (DEBUG_PRINT) printf("Checksum error, computed %x, received %x received_checksum\n",
                computed_checksum, received_checksum);
     }
     // Parse the command
@@ -36,7 +36,7 @@ static void handle_breakpoint(void) {
                                               (unsigned char *) &inst_data);
     if (inst_data[BREAKPOINT_INSTRUCTION_INDEX] == BREAKPOINT_INSTRUCTION) {
         curr_breakpoint = inst_data[BREAKPOINT_NUM_INDEX];
-        if (DEBUG) printf("Breakpoint %d\n", curr_breakpoint);
+        if (DEBUG_PRINT) printf("Breakpoint %d\n", curr_breakpoint);
         restore_breakpoint_data(curr_breakpoint);
     }
 }
@@ -81,20 +81,22 @@ static void GDB_read_memory(char *command) {
     // Buffer for raw data
     unsigned char data[length];
     // Buffer for data formatted as hex string
-    char data_string[CHAR_HEX_SIZE * length + 1];
-    printf("length: %d\n", length);
+    int buf_len = CHAR_HEX_SIZE * length + 1;
+    char data_string[buf_len];
+    if (DEBUG_PRINT) printf("length: %d\n", length);
     // Do a read call to the GDB delegate who will read from the process on our behalf
     /*? me.from_instance.name ?*/_read_memory(addr, length, data);
     // Format the data
     for (int i = 0; i < length; i++) {
       sprintf(&data_string[CHAR_HEX_SIZE * i], "%02x", data[i]);
     }
-    printf("TEST\n");
+    unsigned char checksum = compute_checksum(data_string, buf_len);
     // Print hex stream of read data
     gdb_printf(GDB_RESPONSE_START);
-    for (int i = 0; i < CHAR_HEX_SIZE * length; i += 2) {
+    gdb_printf("$%.*s#%02X", buf_len, data_string, checksum);
+    /*for (int i = 0; i < CHAR_HEX_SIZE * length; i += 2) {
         gdb_printf("%02x", data[i]);
-    }
+    }*/
     gdb_printf(GDB_RESPONSE_END);
     gdb_printf("\n");
 }
@@ -171,9 +173,13 @@ static void GDB_read_general_registers(char* command) {
     int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
     seL4_Word registers[num_regs];
     /*? me.from_instance.name ?*/_read_registers(badge, registers);
+    int buf_len = num_regs * sizeof(int) * CHAR_HEX_SIZE + 1;
+    char data[buf_len];
     for (int i = 0; i < num_regs; i++) {
-        gdb_printf("%08x", registers[i]);
+        sprintf(data + sizeof(int) * CHAR_HEX_SIZE * i, 
+                "%08x", registers[i]);
     }
-    
+    unsigned char checksum = compute_checksum(data, buf_len);
+    gdb_printf("$%.*s#%02x\n", buf_len, data, checksum);
 }
 

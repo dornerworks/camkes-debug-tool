@@ -63,12 +63,12 @@ int /*? me.to_interface.name ?*/__run(void) {
         stream_read = true;
         reg_pc = seL4_GetMR(0);
         gdb_printf("Fault received on /*? me.to_interface.name ?*/\n");
-        if (DEBUG) gdb_printf("PC %08x\n", reg_pc);
-        if (DEBUG) gdb_printf("Fault address %08x\n", seL4_GetMR(1));
-        if (DEBUG) gdb_printf("Badge %08x\n", badge);
+        if (DEBUG_PRINT) gdb_printf("PC %08x\n", reg_pc);
+        if (DEBUG_PRINT) gdb_printf("Fault address %08x\n", seL4_GetMR(1));
+        if (DEBUG_PRINT) gdb_printf("Badge %08x\n", badge);
         seL4_CNode_SaveCaller(/*? cnode ?*/, /*? reply_cap_slot ?*/, 32);
         if (seL4_GetMR(2)) {
-            if (DEBUG) printf("Instruction fault\n");
+            if (DEBUG_PRINT) printf("Instruction fault\n");
             handle_breakpoint();
         }
         // Start accepting GDB input
@@ -94,7 +94,7 @@ static int handle_command(char* command) {
     switch (command[0]) {
         case '!':
             // Enable extended mode
-            if (DEBUG) printf("Not implemented: enable extended mode\n");
+            if (DEBUG_PRINT) printf("Not implemented: enable extended mode\n");
             break;
         case '?':
             // Halt reason
@@ -102,107 +102,107 @@ static int handle_command(char* command) {
             break;
         case 'A':
             // Argv
-            if (DEBUG) printf("Not implemented: argv\n");
+            if (DEBUG_PRINT) printf("Not implemented: argv\n");
             break;
         case 'b':
             if (command[1] == 'c') {
                 // Backward continue
-                if (DEBUG) printf("Not implemented: backward continue\n");
+                if (DEBUG_PRINT) printf("Not implemented: backward continue\n");
                 break;
             } else if (command[1] == 's') {
                 // Backward step
-                if (DEBUG) printf("Not implemented: backward step\n");
+                if (DEBUG_PRINT) printf("Not implemented: backward step\n");
                 break;
             } else {
                // Set baud rate
-                if (DEBUG) printf("Not implemented: Set baud rate\n"); 
+                if (DEBUG_PRINT) printf("Not implemented: Set baud rate\n"); 
                 break;
             } 
         case 'c':
             // Continue
-            if (DEBUG) printf("Continuing\n");
+            if (DEBUG_PRINT) printf("Continuing\n");
             send_reply();
             break;
         case 'C':
             // Continue with signal
-            if (DEBUG) printf("Not implemented: continue with signal\n");
+            if (DEBUG_PRINT) printf("Not implemented: continue with signal\n");
             break;
         case 'd':
-            if (DEBUG) printf("Not implemented: toggle debug\n");
+            if (DEBUG_PRINT) printf("Not implemented: toggle debug\n");
             break;
         case 'D':
-            if (DEBUG) printf("Not implemented: detach\n");
+            if (DEBUG_PRINT) printf("Not implemented: detach\n");
             break;
         case 'F':
-            if (DEBUG) printf("Not implemented: file IO\n");
+            if (DEBUG_PRINT) printf("Not implemented: file IO\n");
             break;
         case 'g':
-            if (DEBUG) printf("Reading general registers\n");
+            if (DEBUG_PRINT) printf("Reading general registers\n");
             GDB_read_general_registers(command);
             break;
         case 'G':
-            if (DEBUG) printf("Not implemented: write general registers\n");
+            if (DEBUG_PRINT) printf("Not implemented: write general registers\n");
             break;
         case 'H':
-            if (DEBUG) printf("Set thread ignored\n");
+            if (DEBUG_PRINT) printf("Set thread ignored\n");
             GDB_set_thread(command);
             break;
         case 'i':
-            if (DEBUG) printf("Not implemented: cycle step\n");
+            if (DEBUG_PRINT) printf("Not implemented: cycle step\n");
             break;
         case 'I':
-            if (DEBUG) printf("Not implemented: signal + cycle step\n");
+            if (DEBUG_PRINT) printf("Not implemented: signal + cycle step\n");
             break;
         case 'k':
-            if (DEBUG) printf("Not implemented: kill\n");
+            if (DEBUG_PRINT) printf("Not implemented: kill\n");
             break;
         case 'm':
-            if (DEBUG) printf("Reading memory\n");
+            if (DEBUG_PRINT) printf("Reading memory\n");
             GDB_read_memory(command);
             break;
         case 'M':
-            if (DEBUG) printf("Writing memory\n");
+            if (DEBUG_PRINT) printf("Writing memory\n");
             GDB_write_memory(command);
             break;
         case 'p':
-            if (DEBUG) printf("Not implemented: read register\n");
+            if (DEBUG_PRINT) printf("Not implemented: read register\n");
             break;
         case 'P':
-            if (DEBUG) printf("Not implemented: write register\n");
+            if (DEBUG_PRINT) printf("Not implemented: write register\n");
             break;
         case 'q':
-            if (DEBUG) printf("Query\n");
+            if (DEBUG_PRINT) printf("Query\n");
             GDB_query(command);
             break;
         case 'Q':
-            if (DEBUG) printf("Not implemented: set\n");
+            if (DEBUG_PRINT) printf("Not implemented: set\n");
             break;
         case 'r':
-            if (DEBUG) printf("Not implemented: reset\n");
+            if (DEBUG_PRINT) printf("Not implemented: reset\n");
             break;
         case 'R':
-            if (DEBUG) printf("Not implemented: restart\n");
+            if (DEBUG_PRINT) printf("Not implemented: restart\n");
             break;
         case 's':
-            if (DEBUG) printf("Not implemented: step\n");
+            if (DEBUG_PRINT) printf("Not implemented: step\n");
             break;
         case 'S':
-            if (DEBUG) printf("Not implemented: step + signal\n");
+            if (DEBUG_PRINT) printf("Not implemented: step + signal\n");
             break;
         case 't':
-            if (DEBUG) printf("Not implemented: search\n");
+            if (DEBUG_PRINT) printf("Not implemented: search\n");
             break;
         case 'T':
-            if (DEBUG) printf("Not implemented: check thread\n");
+            if (DEBUG_PRINT) printf("Not implemented: check thread\n");
             break;
         case 'v':
-            if (DEBUG) printf("Not implemented: v commands\n");
+            if (DEBUG_PRINT) printf("Not implemented: v commands\n");
             break;
         case 'X':
-            if (DEBUG) printf("Not implemented: write binary\n");
+            if (DEBUG_PRINT) printf("Not implemented: write binary\n");
             break;
         case 'z':
-            if (DEBUG) printf("Not implemented: remove point\n");
+            if (DEBUG_PRINT) printf("Not implemented: remove point\n");
             break;
         case 'Z':
             if (command[1] == '0') {
@@ -213,7 +213,7 @@ static int handle_command(char* command) {
             }     
             break;
         default:
-            if (DEBUG) printf("Unknown command\n");
+            if (DEBUG_PRINT) printf("Unknown command\n");
     }
     
     return 0;

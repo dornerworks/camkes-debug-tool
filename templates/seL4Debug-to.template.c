@@ -68,12 +68,16 @@ static void read_memory(void) {
     seL4_Word message = 0;
     unsigned char byte = 0;
     // Pack data for messaging
-    for (int i = 0; i < length; i++) {
-        byte = *((unsigned char*)(addr + i));
-        message |= ((seL4_Word) byte) << ((FIRST_BYTE_BITSHIFT - (i % BYTES_IN_WORD) * BYTE_SHIFT));
-        if ((i+1) % BYTES_IN_WORD == 0 || i == length-1) {
-            seL4_SetMR(i / BYTES_IN_WORD, message);
-            message = 0;
+    if ((addr & 0xFF000000) == 0x32000000) {
+        seL4_SetMR(0, 0);
+    } else {    
+        for (int i = 0; i < length; i++) {
+            byte = *((unsigned char*)(addr + i));
+            message |= ((seL4_Word) byte) << ((FIRST_BYTE_BITSHIFT - (i % BYTES_IN_WORD) * BYTE_SHIFT));
+            if ((i+1) % BYTES_IN_WORD == 0 || i == length-1) {
+                seL4_SetMR(i / BYTES_IN_WORD, message);
+                message = 0;
+            }
         }
     }
     info = seL4_MessageInfo_new(0, 0, 0, CEIL_MR(length));
