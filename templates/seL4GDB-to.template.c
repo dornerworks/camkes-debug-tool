@@ -141,7 +141,8 @@ static int handle_command(char* command) {
             GDB_read_general_registers(command);
             break;
         case 'G':
-            if (DEBUG_PRINT) printf("Not implemented: write general registers\n");
+            if (DEBUG_PRINT) printf("Write general registers\n");
+            GDB_write_general_registers(command);
             break;
         case 'H':
             if (DEBUG_PRINT) printf("Set thread ignored\n");

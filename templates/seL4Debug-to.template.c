@@ -50,10 +50,13 @@ int /*? me.to_interface.name ?*/__run(void) {
             case GDB_READ_REG:
                 read_registers();
                 break;
+            case GDB_WRITE_REG:
+                write_registers();
+                break;
             default:
                 printf("Unrecognised command %d %d %d\n", instruction, seL4_GetMR(1), seL4_GetMR(2));
                 info = seL4_MessageInfo_new(0, 0, 0, 1);
-                seL4_Reply(info);
+                seL4_Send(/*? ep ?*/, info);
                 continue;
         }
     }
@@ -113,10 +116,29 @@ static void read_registers(void) {
     int err;
     int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
     seL4_Word tcb_cap = seL4_GetMR(DELEGATE_ARG(0));
+    printf("Reading registers on cap: %d\n", tcb_cap);
     err = seL4_TCB_ReadRegisters(tcb_cap, false, 0, num_regs, &regs);
     seL4_Word *reg_word = (seL4_Word *) (& regs);
     for (int i = 0; i < num_regs; i++) {
         seL4_SetMR(i, reg_word[i]);
     }
+    seL4_Send(/*? ep ?*/, info);
+}
+
+static void write_registers(void) {
+    seL4_MessageInfo_t info;
+    seL4_UserContext regs;
+    seL4_Word *reg_word = (seL4_Word *) (&regs);
+    int err;
+    int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
+    seL4_Word tcb_cap = seL4_GetMR(DELEGATE_ARG(0));
+    printf("Writing registers on cap: %d\n", tcb_cap);
+    for (int i = 0; i < num_regs; i++) {
+        reg_word[i] = seL4_GetMR(DELEGATE_ARG(i+1));
+        //regs.eip = seL4_GetMR(DELEGATE_ARG(1));
+        printf("%d 0x%x\n", i, reg_word[i]);
+    }
+    err = seL4_TCB_WriteRegisters(tcb_cap, false, 0, num_regs, &regs);
+    printf("Write registers err: %d\n", err);
     seL4_Send(/*? ep ?*/, info);
 }

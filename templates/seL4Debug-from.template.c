@@ -105,3 +105,19 @@ void /*? me.to_instance.name ?*/_read_registers(seL4_Word tcb_cap, seL4_Word reg
         registers[i] = seL4_GetMR(i);    
     }
 }
+
+void /*? me.to_instance.name ?*/_write_registers(seL4_Word tcb_cap, seL4_Word registers[], int len) {
+    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, DELEGATE_REG_WRITE_NUM_ARGS);
+    // Setup arguments for call
+    seL4_SetMR(DELEGATE_COMMAND_REG, GDB_WRITE_REG);
+    seL4_SetMR(DELEGATE_ARG(0), tcb_cap);
+    for (int i = 0; i < len; i++) {
+        seL4_SetMR(DELEGATE_ARG(i+1), registers[i]);    
+    }
+    for (int i = len; i < (sizeof(seL4_UserContext) / sizeof(seL4_Word)); i++) {
+        seL4_SetMR(DELEGATE_ARG(i+1), 0);
+    }
+    // Send
+    seL4_Send(/*? ep ?*/, info);
+    info = seL4_Recv(/*? ep ?*/, NULL);
+}

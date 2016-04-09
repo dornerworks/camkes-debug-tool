@@ -183,3 +183,26 @@ static void GDB_read_general_registers(char* command) {
     gdb_printf("$%.*s#%02x\n", buf_len, data, checksum);
 }
 
+static void GDB_write_general_registers(char *command) {
+    char *data_string = strtok(command + 1, "#");
+    int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
+    int num_regs_data = (strlen(data_string)) / (sizeof(int) * 2);
+    if (DEBUG_PRINT) printf("num_regs: %d, data regs: %d, len: %d\n", num_regs, num_regs_data, strlen(data_string));
+    if (num_regs_data > num_regs) {
+        num_regs_data = num_regs;
+    }
+    seL4_Word data[num_regs_data];
+    char buf[50];
+    printf("Data string: %s\n", data_string);
+    for (int i = 0; i < num_regs_data; i++) {
+        memset(buf, 0, 50);
+        strncpy(buf, data_string, sizeof(int) * 2);
+        printf("Test\n");
+        data_string += sizeof(int) * 2;
+        printf("Test1 %p\n", buf);
+        data[i] = (seL4_Word) strtol((char *) buf, NULL, 16);
+        printf("Test2\n");
+        if (DEBUG_PRINT) printf("Reg%d: %x\n", i, data[i]);
+    }
+    /*? me.from_instance.name ?*/_write_registers(badge, data, num_regs_data);
+}
