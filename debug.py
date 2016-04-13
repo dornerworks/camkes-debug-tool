@@ -207,10 +207,10 @@ def main(argv):
     target_ast = create_debug_component_types(target_ast, debug_types)
     # Add declarations for the new types
     target_ast = add_debug_declarations(target_ast, debug_components)
+        # Get the static definitions needed every time
+    debug_definitions = get_debug_definitions()
     # Generate server based on debug components
-    debug_definitions = generate_server_component(debug_components)
-    # Get the static definitions needed every time
-    debug_definitions += get_debug_definitions()
+    debug_definitions += generate_server_component(debug_components)
     # Update makefile with the new debug camkes
     update_makefile(project_name, debug_types)
     # Copy the templates into the project directory
