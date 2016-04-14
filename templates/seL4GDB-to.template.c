@@ -47,18 +47,12 @@ static seL4_Word badge;
 void /*? me.to_interface.name ?*/__init(void) {
     serial_init();
     breakpoint_init();
-    serial_putchar('T');
-    serial_putchar('E');
-    serial_putchar('S');
-    serial_putchar('T');
-    serial_putchar('\n');
 }
 
 int /*? me.to_interface.name ?*/__run(void) {
     /*# Check any typedefs we have been given are not arrays. #*/
     // Make connection to gdb
-    while (1) { 
-        
+    while (1) {
         seL4_Recv(/*? ep ?*/, &badge);
         stream_read = true;
         reg_pc = seL4_GetMR(0);
