@@ -115,13 +115,14 @@ def get_debug_definitions():
         s = f.read()
     return s
 
-def update_makefile(project_name, debug_types):
-    if not os.path.isfile(apps_folder + "%s/Makefile.bk" % project_name):
+def update_makefile(project_camkes, debug_types):
+    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes))
+    if not os.path.isfile(project_dir + "Makefile.bk"):
         # Read makefile
-        with open(apps_folder + "%s/Makefile" % project_name, 'r+') as f:
+        with open(project_dir + "Makefile", 'r+') as f:
             makefile_text = f.readlines()
         # Backup Makefile
-        with open(apps_folder + "%s/Makefile.bk" % project_name, 'w+') as f2:
+        with open(project_dir + "Makefile.bk", 'w+') as f2:
             for line in makefile_text:
                 f2.write(line)
         new_lines = list()
@@ -139,25 +140,27 @@ def update_makefile(project_name, debug_types):
         # Add template location
         new_lines.append("TEMPLATES := debug\n")
         makefile_text = new_lines + makefile_text
-        with open(apps_folder + "%s/Makefile" % project_name, 'w') as f:
+        with open(project_dir + "Makefile", 'w') as f:
             for line in makefile_text:
                 f.write(line)
 
 # Cleanup any new files generated
-def clean_debug(project_name):
-    if os.path.isfile(apps_folder + "%s/Makefile.bk" % project_name):
-        os.remove(apps_folder + "%s/Makefile" % project_name)
-        os.rename(apps_folder + "%s/Makefile.bk" % project_name, 
-                  apps_folder + "%s/Makefile" % project_name)
-    if os.path.isfile(apps_folder + "%s/%s.camkes.dbg" % (project_name, project_name)):
-        os.remove(apps_folder + "%s/%s.camkes.dbg" % (project_name, project_name))
-    if os.path.isdir(apps_folder + "%s/debug" % project_name):
-        shutil.rmtree(apps_folder + "%s/debug" % project_name)
+def clean_debug(project_camkes):
+    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes))
+    if os.path.isfile(project_dir + "Makefile.bk"):
+        os.remove(project_dir + "Makefile")
+        os.rename(project_dir + "Makefile.bk", 
+                  project_dir + "Makefile")
+    if os.path.isfile(apps_folder + project_camkes + ".dbg"):
+        os.remove(apps_folder + project_camkes + ".dbg")
+    if os.path.isdir(project_dir + "debug"):
+        shutil.rmtree(project_dir + "debug")
 
 # Copy the templates to the project folder
-def copy_templates(project_name):
-    if not os.path.exists(apps_folder + "%s/debug" % project_name):
-        shutil.copytree(templates_src_dir, apps_folder + "%s/debug" % project_name)
+def copy_templates(project_camkes):
+    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes))
+    if not os.path.exists(project_dir + "debug"):
+        shutil.copytree(templates_src_dir, project_dir + "debug")
 
 def main(argv):
     # Parse input
@@ -167,22 +170,22 @@ def main(argv):
         print str(err)
         sys.exit(1)
     if len(args) == 0:
-        print "Must provide project name"
+        print "Must provide project camkes file"
         sys.exit(1)
     elif len(args) > 1:
         print "Too many args"
         sys.exit(1)
     else:
-        project_name = args[0]
-        if not os.path.isdir(apps_folder + project_name):
-            print "Project not found: %s" % project_name
+        project_camkes = args[0]
+        if not os.path.isfile(apps_folder + project_camkes):
+            print "File not found: %s" % apps_folder + project_camkes
             sys.exit(1)
     for o, a in opts:
         if o == "-c":
-            clean_debug(project_name)
+            clean_debug(project_camkes)
             sys.exit(0)
     # Open camkes file for parsing
-    with open(apps_folder + "%s/%s.camkes" % (project_name, project_name)) as f:
+    with open(apps_folder + project_camkes) as f:
         lines = f.readlines();
     # Remove any global imports and add them back in later
     s = ""
@@ -197,7 +200,8 @@ def main(argv):
     target_ast = parser.parse_to_ast(s);
     include_path = ["include/builtin"]
     # Resolve other imports
-    target_ast, _ = parser.resolve_imports(target_ast, apps_folder + project_name, include_path)
+    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes))
+    target_ast, _ = parser.resolve_imports(target_ast, project_dir, include_path)
     target_ast = parser.resolve_references(target_ast)
     # Find debug components declared in the camkes file
     debug_components = get_debug_components(target_ast)
@@ -212,12 +216,12 @@ def main(argv):
     # Generate server based on debug components
     debug_definitions += generate_server_component(debug_components)
     # Update makefile with the new debug camkes
-    update_makefile(project_name, debug_types)
+    update_makefile(project_camkes, debug_types)
     # Copy the templates into the project directory
-    copy_templates(project_name)
+    copy_templates(project_camkes)
     # Output the camkes file
     new_camkes = imports  + debug_definitions + parser.pretty(parser.show(target_ast))
-    with open(apps_folder + "%s/%s.camkes.dbg" % (project_name, project_name), 'w') as f:
+    with open(apps_folder + project_camkes + ".dbg", 'w') as f:
         for line in new_camkes:
             f.write(line)
 
