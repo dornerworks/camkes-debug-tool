@@ -1,19 +1,21 @@
 #!/usr/bin/env python
 import sys
-sys.path.insert(0, '../camkes')
+import os
+camkes_path =  os.path.realpath(__file__ + '/../../camkes/')
+sys.path.insert(0, camkes_path)
 import camkes.parser as parser
 import camkes.ast as ast
-import os
 import code
 import copy
 import re
 import shutil
 import getopt
 
-apps_folder = "../../apps/"
-definitions_dir = "include/definitions.camkes"
-templates_src_dir = "templates/"
-debug_camkes = "include/debug.camkes"
+apps_folder = os.path.realpath(__file__ + '/../../../apps/') + "/"
+definitions_dir = os.path.realpath(__file__ + '/../include/definitions.camkes')
+templates_src_dir = os.path.realpath(__file__ + '/../templates') + "/"
+debug_camkes = os.path.realpath(__file__ + '/../include/debug.camkes')
+
 # Find debug components declared in the camkes file
 def get_debug_components(target_ast):
     debug = dict()
@@ -116,7 +118,7 @@ def get_debug_definitions():
     return s
 
 def update_makefile(project_camkes, debug_types):
-    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes))
+    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
     if not os.path.isfile(project_dir + "Makefile.bk"):
         # Read makefile
         with open(project_dir + "Makefile", 'r+') as f:
@@ -146,7 +148,7 @@ def update_makefile(project_camkes, debug_types):
 
 # Cleanup any new files generated
 def clean_debug(project_camkes):
-    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes))
+    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
     if os.path.isfile(project_dir + "Makefile.bk"):
         os.remove(project_dir + "Makefile")
         os.rename(project_dir + "Makefile.bk", 
@@ -158,7 +160,7 @@ def clean_debug(project_camkes):
 
 # Copy the templates to the project folder
 def copy_templates(project_camkes):
-    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes))
+    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
     if not os.path.exists(project_dir + "debug"):
         shutil.copytree(templates_src_dir, project_dir + "debug")
 
@@ -200,7 +202,7 @@ def main(argv):
     target_ast = parser.parse_to_ast(s);
     include_path = ["include/builtin"]
     # Resolve other imports
-    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes))
+    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
     target_ast, _ = parser.resolve_imports(target_ast, project_dir, include_path)
     target_ast = parser.resolve_references(target_ast)
     # Find debug components declared in the camkes file
