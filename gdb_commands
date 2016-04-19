@@ -1,0 +1,3 @@
+info registers
+info registers eip            etc...
+x $eip
