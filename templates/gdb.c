@@ -1,4 +1,4 @@
-
+#include <endian.h>
 
 static int handle_gdb(void) {
     // Acknowledge packet
@@ -132,7 +132,7 @@ static void GDB_query(char *command) {
     char *query_type = strtok(command, "q:#");
     if (strcmp("Supported", query_type) == 0) {// Setup argument storage
         // TODO Parse arguments and respond what the stub supports
-        gdb_printf(GDB_RESPONSE_START "$PacketSize=100#f1" GDB_RESPONSE_END "\n");
+        gdb_printf(GDB_RESPONSE_START "$PacketSize=100#c1" GDB_RESPONSE_END "\n");
     } else if (strcmp("TStatus", query_type) == 0) {
         gdb_printf(GDB_RESPONSE_START "$#00" GDB_RESPONSE_END "\n");
     } else if (strcmp("TfV", query_type) == 0) {
@@ -145,6 +145,8 @@ static void GDB_query(char *command) {
         gdb_printf(GDB_RESPONSE_START "$m01#ce" GDB_RESPONSE_END "\n");
     } else if (strcmp("sThreadInfo", query_type) == 0) {
         gdb_printf(GDB_RESPONSE_START "$l#6c" GDB_RESPONSE_END "\n");
+    } else if (strcmp("Symbol", query_type) == 0) {
+        gdb_printf(GDB_RESPONSE_START "$OK#9a" GDB_RESPONSE_END "\n");
     } else {
         printf("Unrecognised query command\n");
     }
@@ -176,11 +178,37 @@ static void GDB_read_general_registers(char* command) {
     int buf_len = num_regs * sizeof(int) * CHAR_HEX_SIZE + 1;
     char data[buf_len];
     for (int i = 0; i < num_regs; i++) {
-        sprintf(data + sizeof(int) * CHAR_HEX_SIZE * i, 
-                "%08x", registers[i]);
+        sprintf(data + sizeof(seL4_Word) * CHAR_HEX_SIZE * i, 
+                "%08x", __builtin_bswap32(registers[i]));
     }
     unsigned char checksum = compute_checksum(data, buf_len);
     gdb_printf("$%.*s#%02x\n", buf_len, data, checksum);
+}
+
+static void GDB_read_register(char* command) {
+    seL4_Word reg;
+    // Get which register we want to read
+    char *register_string = strtok(command + 1, "#");
+    if (register_string == NULL) {
+        char error[] = "E00";
+        unsigned char checksum = compute_checksum(error, strlen(error));
+        gdb_printf("$%s#%02x\n", error, checksum);
+        return;
+    }
+    int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
+    seL4_Word reg_num = strtol(register_string, NULL, 16);
+    if (reg_num >= num_regs) {
+        char error[] = "E00";
+        unsigned char checksum = compute_checksum(error, strlen(error));
+        gdb_printf("$%s#%02x\n", error, checksum);
+        return;
+    }
+    /*? me.from_instance.name ?*/_read_register(badge, &reg, reg_num);
+    int buf_len = sizeof(seL4_Word) * CHAR_HEX_SIZE + 1;
+    char data[buf_len];
+    sprintf(data, "%02x", __builtin_bswap32(reg));
+    unsigned char checksum = compute_checksum(data, buf_len);
+    gdb_printf("$%2s#%02x\n", data, checksum);
 }
 
 static void GDB_write_general_registers(char *command) {

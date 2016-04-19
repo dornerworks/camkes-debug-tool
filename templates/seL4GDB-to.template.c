@@ -160,7 +160,8 @@ static int handle_command(char* command) {
             GDB_write_memory(command);
             break;
         case 'p':
-            if (DEBUG_PRINT) printf("Not implemented: read register\n");
+            if (DEBUG_PRINT) printf("Read register\n");
+            GDB_read_register(command);
             break;
         case 'P':
             if (DEBUG_PRINT) printf("Not implemented: write register\n");

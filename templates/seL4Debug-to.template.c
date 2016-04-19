@@ -34,6 +34,12 @@
  /*- set reply_cap_slot = alloc_cap('reply_cap_slot', None) -*/
 /*- include 'GDB_delegate.h' -*/
 
+static void read_memory(void);
+static void write_memory(void);
+static void read_register(void);
+static void read_registers(void);
+static void write_registers(void);
+
 int /*? me.to_interface.name ?*/__run(void) {   
     while (1) { 
         // Receive RPC and reply
@@ -47,11 +53,14 @@ int /*? me.to_interface.name ?*/__run(void) {
             case GDB_WRITE_MEM:
                 write_memory();
                 break;
-            case GDB_READ_REG:
+            case GDB_READ_REGS:
                 read_registers();
                 break;
             case GDB_WRITE_REG:
                 write_registers();
+                break;
+            case GDB_READ_REG:
+                read_register();
                 break;
             default:
                 printf("Unrecognised command %d %d %d\n", instruction, seL4_GetMR(1), seL4_GetMR(2));
@@ -70,17 +79,13 @@ static void read_memory(void) {
     //seL4_CNode_SaveCaller(/*? cnode ?*/, /*? reply_cap_slot ?*/, 32);
     seL4_Word message = 0;
     unsigned char byte = 0;
-    // Pack data for messaging
-    if ((addr & 0xFF000000) == 0x32000000) {
-        seL4_SetMR(0, 0);
-    } else {    
-        for (int i = 0; i < length; i++) {
-            byte = *((unsigned char*)(addr + i));
-            message |= ((seL4_Word) byte) << ((FIRST_BYTE_BITSHIFT - (i % BYTES_IN_WORD) * BYTE_SHIFT));
-            if ((i+1) % BYTES_IN_WORD == 0 || i == length-1) {
-                seL4_SetMR(i / BYTES_IN_WORD, message);
-                message = 0;
-            }
+    // Pack data for messaging   
+    for (int i = 0; i < length; i++) {
+        byte = *((unsigned char*)(addr + i));
+        message |= ((seL4_Word) byte) << ((FIRST_BYTE_BITSHIFT - (i % BYTES_IN_WORD) * BYTE_SHIFT));
+        if ((i+1) % BYTES_IN_WORD == 0 || i == length-1) {
+            seL4_SetMR(i / BYTES_IN_WORD, message);
+            message = 0;
         }
     }
     info = seL4_MessageInfo_new(0, 0, 0, CEIL_MR(length));
@@ -111,17 +116,29 @@ static void write_memory(void) {
 }
 
 static void read_registers(void) {
-    seL4_MessageInfo_t info;
-    seL4_UserContext regs;
+    seL4_UserContext regs = {0};
     int err;
     int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
+    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, num_regs);
     seL4_Word tcb_cap = seL4_GetMR(DELEGATE_ARG(0));
-    printf("Reading registers on cap: %d\n", tcb_cap);
     err = seL4_TCB_ReadRegisters(tcb_cap, false, 0, num_regs, &regs);
     seL4_Word *reg_word = (seL4_Word *) (& regs);
     for (int i = 0; i < num_regs; i++) {
         seL4_SetMR(i, reg_word[i]);
     }
+    seL4_Send(/*? ep ?*/, info);
+}
+
+static void read_register(void) {
+    seL4_UserContext regs = {0};
+    int err;
+    int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
+    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, 1);
+    seL4_Word tcb_cap = seL4_GetMR(DELEGATE_ARG(0));
+    seL4_Word reg_num = seL4_GetMR(DELEGATE_ARG(1));
+    err = seL4_TCB_ReadRegisters(tcb_cap, false, 0, num_regs, &regs);
+    seL4_Word *reg_word = (seL4_Word *) (& regs);
+    seL4_SetMR(0, reg_word[reg_num]);
     seL4_Send(/*? ep ?*/, info);
 }
 

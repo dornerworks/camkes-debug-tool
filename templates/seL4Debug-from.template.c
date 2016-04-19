@@ -92,9 +92,9 @@ seL4_Word /*? me.to_instance.name ?*/_write_memory(seL4_Word addr, seL4_Word len
 void /*? me.to_instance.name ?*/_read_registers(seL4_Word tcb_cap, seL4_Word registers[]) {
     // Generate message
     seL4_Word length;
-    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, DELEGATE_REG_READ_NUM_ARGS);
+    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, DELEGATE_REGS_READ_NUM_ARGS);
     // Setup arguments for call
-    seL4_SetMR(DELEGATE_COMMAND_REG, GDB_READ_REG);
+    seL4_SetMR(DELEGATE_COMMAND_REG, GDB_READ_REGS);
     seL4_SetMR(DELEGATE_ARG(0), tcb_cap);
     // Send
     seL4_Send(/*? ep ?*/, info);
@@ -104,6 +104,19 @@ void /*? me.to_instance.name ?*/_read_registers(seL4_Word tcb_cap, seL4_Word reg
     for (int i = 0; i < length; i++) {
         registers[i] = seL4_GetMR(i);    
     }
+}
+
+void /*? me.to_instance.name ?*/_read_register(seL4_Word tcb_cap, seL4_Word *reg, seL4_Word reg_num) {
+    // Generate message
+    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, DELEGATE_REG_READ_NUM_ARGS);
+    // Setup arguments for call
+    seL4_SetMR(DELEGATE_COMMAND_REG, GDB_READ_REG);
+    seL4_SetMR(DELEGATE_ARG(0), tcb_cap);
+    seL4_SetMR(DELEGATE_ARG(1), reg_num);
+    // Send
+    seL4_Send(/*? ep ?*/, info);
+    info = seL4_Recv(/*? ep ?*/, NULL);
+    *reg = seL4_GetMR(0);   
 }
 
 void /*? me.to_instance.name ?*/_write_registers(seL4_Word tcb_cap, seL4_Word registers[], int len) {

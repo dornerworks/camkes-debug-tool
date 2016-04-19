@@ -60,9 +60,12 @@ static void GDB_insert_sw_breakpoint(char *command);
 static void GDB_set_thread(char *command);
 static void GDB_halt_reason(char *command);
 static void GDB_read_general_registers(char* command);
+static void GDB_read_register(char* command);
 
 extern seL4_Word /*? me.from_instance.name ?*/_write_memory(seL4_Word addr, seL4_Word length, 
 															unsigned char *data);
 extern unsigned char* /*? me.from_instance.name ?*/_read_memory(seL4_Word addr, seL4_Word length, 
 																unsigned char *data);
 extern void /*? me.from_instance.name ?*/_read_registers(seL4_Word tcb_cap, seL4_Word registers[]);
+extern void /*? me.from_instance.name ?*/_read_register(seL4_Word tcb_cap, seL4_Word *reg, seL4_Word reg_num);
+extern void /*? me.from_instance.name ?*/_write_registers(seL4_Word tcb_cap, seL4_Word registers[], int len);
