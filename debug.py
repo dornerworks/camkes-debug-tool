@@ -157,12 +157,26 @@ def clean_debug(project_camkes):
         os.remove(apps_folder + project_camkes + ".dbg")
     if os.path.isdir(project_dir + "debug"):
         shutil.rmtree(project_dir + "debug")
+    top_folder = os.path.realpath(__file__ + '/../../..') + "/"
+    if os.path.isfile(top_folder + ".gdbinit"):
+        os.remove(top_folder + ".gdbinit")
 
 # Copy the templates to the project folder
 def copy_templates(project_camkes):
     project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
     if not os.path.exists(project_dir + "debug"):
         shutil.copytree(templates_src_dir, project_dir + "debug")
+
+# Write a .gdbinit file
+# Currently only loads the symbol table for the first debug component
+def write_gdbinit(projects_name, debug_components):
+    top_folder = os.path.realpath(__file__ + '/../../..') + "/"
+    with open(top_folder + '.gdbinit', 'w+') as f:
+        component_name = debug_components.keys()[0]
+        f.write("target remote :1234\n")
+        f.write("symbol-file build/x86/pc99/%s/%s.instance.bin\n" % (projects_name, component_name))
+        
+
 
 def main(argv):
     # Parse input
@@ -226,6 +240,10 @@ def main(argv):
     with open(apps_folder + project_camkes + ".dbg", 'w') as f:
         for line in new_camkes:
             f.write(line)
+    # Write a gdbinit file
+    name_regex = re.compile(r"(.*)/")
+    m = name_regex.search(project_camkes)
+    write_gdbinit(m.group(1), debug_components)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
