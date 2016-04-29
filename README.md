@@ -62,17 +62,23 @@ make
 ```
 
 We will now connect to the system through GDB remotely (on a different shell)
+The debug tool will have generated a .gdbinit file which will initialise the gdb shell for us.
 ### Running gdb
 ```
-gdb -ex 'target remote :1234'
+gdb
 ```
 
 ### Using GDB
-Current functionality includes reading memory and registers.
+Current functionality includes reading memory and registers, backtrace, seeing variables, and so on.
 ```
 info registers
 x $esp
-
+info locals
+bt
+frame 2
+info args
+list 0
+print a
 ```
 
 </br>
@@ -176,9 +182,6 @@ Make the tool run automatically when provided a flag to debug. Also look at fixi
 ### Hardware breakpoints
 Add kernel support for hardware breakpoints, then implement the GDB function for them.
 
-### Add symbol file functionality
-Implement the qSymbol gdb remote command, which will allow us to load symbol files on GDB.
-
 ### Safe memory access
 Currently memory access is not safe, and will cause the GDB delegate to crash if it is not valid. The GDB delegate currently connects to the standard fault handler, a separate handler must be written and the fault ep changed.
 
@@ -198,7 +201,6 @@ Support multi-debugging either through multiple serial ports (or ethernet) or us
 
 | Command   | Command Description               |
 |---------  |---------------------------------- |
-| qSymbol   | Used for getting symbols for GDB  |
 | P         | Write register n                  |
 | i         | Step one clock cycle              |
 | s/S       | Single step                       |
