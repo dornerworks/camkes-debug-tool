@@ -37,7 +37,6 @@
 /*- include 'serial.h' -*/
 /*- include 'gdb.h' -*/
 
-static void send_reply(void);
 static int handle_command(char* command);
 static seL4_Word reg_pc;
 static seL4_Word badge;
@@ -57,7 +56,6 @@ int /*? me.to_interface.name ?*/__run(void) {
         stream_read = true;
         reg_pc = seL4_GetMR(0);
         gdb_printf("Fault received on /*? me.to_interface.name ?*/\n");
-        if (DEBUG_PRINT) gdb_printf("PC %08x\n", reg_pc);
         if (DEBUG_PRINT) gdb_printf("Fault address %08x\n", seL4_GetMR(1));
         if (DEBUG_PRINT) gdb_printf("Badge %08x\n", badge);
         seL4_CNode_SaveCaller(/*? cnode ?*/, /*? reply_cap_slot ?*/, 32);
@@ -69,17 +67,8 @@ int /*? me.to_interface.name ?*/__run(void) {
         serial_irq_reg_callback(serial_irq_rcv, 0);
         //eth_irq_reg_callback(eth_irq_rcv, 0);
         // TODO Start accepting ethernet input
-        //send_reply();
     }
     UNREACHABLE();
-}
-
-static void send_reply(void) {
-    stream_read = false;
-    //assert(err==0);
-    seL4_MessageInfo_t reply = seL4_MessageInfo_new(0, 0, 0, 1);
-    seL4_SetMR(0, reg_pc);
-    seL4_Send(/*? reply_cap_slot ?*/, reply);
 }
 
 
@@ -115,7 +104,6 @@ static int handle_command(char* command) {
         case 'c':
             // Continue
             if (DEBUG_PRINT) printf("Continuing\n");
-            send_reply();
             break;
         case 'C':
             // Continue with signal

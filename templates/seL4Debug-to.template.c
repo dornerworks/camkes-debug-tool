@@ -119,13 +119,24 @@ static void read_registers(void) {
     seL4_UserContext regs = {0};
     int err;
     int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
-    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, num_regs);
+    seL4_MessageInfo_t info = seL4_MessageInfo_new(0, 0, 0, 10);
     seL4_Word tcb_cap = seL4_GetMR(DELEGATE_ARG(0));
     err = seL4_TCB_ReadRegisters(tcb_cap, false, 0, num_regs, &regs);
+    // Send registers in the order GDB expects them
     seL4_Word *reg_word = (seL4_Word *) (& regs);
-    for (int i = 0; i < num_regs; i++) {
-        seL4_SetMR(i, reg_word[i]);
-    }
+    seL4_SetMR(0, regs.eax);
+    seL4_SetMR(1, regs.ecx);
+    seL4_SetMR(2, regs.edx);
+    seL4_SetMR(3, regs.ebx);
+    seL4_SetMR(4, regs.esp);
+    seL4_SetMR(5, regs.ebp);
+    seL4_SetMR(6, regs.esi);
+    seL4_SetMR(7, regs.edi);
+    seL4_SetMR(8, regs.eip);
+    seL4_SetMR(9, regs.eflags);
+    /*seL4_SetMR(10, regs.cs);
+    seL4_SetMR(11, regs.ss);
+    seL4_SetMR(12, regs.ds);*/
     seL4_Send(/*? ep ?*/, info);
 }
 

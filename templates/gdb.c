@@ -67,6 +67,14 @@ static void restore_breakpoint_data(unsigned char breakpoint_num) {
     breakpoints[free_breakpoint_tail].saved_data[0] = breakpoint_num;
 }
 
+static void send_message(char *message, int len) {
+    if (len == 0) {
+        len = strlen(message);
+    }
+    unsigned char checksum = compute_checksum(message, len);
+    gdb_printf(GDB_RESPONSE_START "$%s#%02X", message, checksum);
+    gdb_printf(GDB_RESPONSE_END);
+}
 
 // GDB read memory format:
 // m[addr],[length]
@@ -90,15 +98,8 @@ static void GDB_read_memory(char *command) {
     for (int i = 0; i < length; i++) {
       sprintf(&data_string[CHAR_HEX_SIZE * i], "%02x", data[i]);
     }
-    unsigned char checksum = compute_checksum(data_string, buf_len);
-    // Print hex stream of read data
-    gdb_printf(GDB_RESPONSE_START);
-    gdb_printf("$%.*s#%02X", buf_len, data_string, checksum);
-    /*for (int i = 0; i < CHAR_HEX_SIZE * length; i += 2) {
-        gdb_printf("%02x", data[i]);
-    }*/
-    gdb_printf(GDB_RESPONSE_END);
-    gdb_printf("\n");
+
+    send_message(data_string, buf_len);
 }
 
 // GDB write memory format:
@@ -124,7 +125,7 @@ static void GDB_write_memory(char* command) {
     // Do a write call to the GDB delegate who will write to the process on our behalf
     seL4_Word error = /*? me.from_instance.name ?*/_write_memory(addr, length, data);
     if (!error) {
-        gdb_printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
+        send_message("OK", 0);
     }
 }
 
@@ -132,21 +133,21 @@ static void GDB_query(char *command) {
     char *query_type = strtok(command, "q:#");
     if (strcmp("Supported", query_type) == 0) {// Setup argument storage
         // TODO Parse arguments and respond what the stub supports
-        gdb_printf(GDB_RESPONSE_START "$PacketSize=100#c1" GDB_RESPONSE_END "\n");
+        send_message("PacketSize=100", 0);
     } else if (strcmp("TStatus", query_type) == 0) {
-        gdb_printf(GDB_RESPONSE_START "$#00" GDB_RESPONSE_END "\n");
+        send_message("", 0);
     } else if (strcmp("TfV", query_type) == 0) {
-        gdb_printf(GDB_RESPONSE_START "$#00" GDB_RESPONSE_END "\n");
+        send_message("", 0);
     } else if (strcmp("C", query_type) == 0) {
-        gdb_printf(GDB_RESPONSE_START "$QC1#c5" GDB_RESPONSE_END "\n");
+        send_message("QC1", 0);
     } else if (strcmp("Attached", query_type) == 0) {
-        gdb_printf(GDB_RESPONSE_START "$#00" GDB_RESPONSE_END "\n");
+        send_message("", 0);
     } else if (strcmp("fThreadInfo", query_type) == 0) {
-        gdb_printf(GDB_RESPONSE_START "$m01#ce" GDB_RESPONSE_END "\n");
+        send_message("m01", 0);
     } else if (strcmp("sThreadInfo", query_type) == 0) {
-        gdb_printf(GDB_RESPONSE_START "$l#6c" GDB_RESPONSE_END "\n");
+        send_message("l", 0);
     } else if (strcmp("Symbol", query_type) == 0) {
-        gdb_printf(GDB_RESPONSE_START "$OK#9a" GDB_RESPONSE_END "\n");
+        send_message("", 0);
     } else {
         printf("Unrecognised query command\n");
     }
@@ -159,30 +160,29 @@ static void GDB_insert_sw_breakpoint(char* command) {
     unsigned char breakpoint[2] = {0xCC, breakpoint_index};
     seL4_Word error = /*? me.from_instance.name ?*/_write_memory(addr, 2, (unsigned char *)&breakpoint);
     if (!error) {
-        gdb_printf(GDB_RESPONSE_START GDB_OK GDB_RESPONSE_END "\n");
+        send_message("OK", 0);
     }
 }
 
 static void GDB_set_thread(char *command) {
-    gdb_printf(GDB_RESPONSE_START "$OK#9a" GDB_RESPONSE_END "\n");
+    send_message("OK", 0);
 }   
 
 static void GDB_halt_reason(char *command) {
-    gdb_printf(GDB_RESPONSE_START "$T05thread:01;#07" GDB_RESPONSE_END "\n");
+    send_message("T05thread:01;", 0);
 }
 
 static void GDB_read_general_registers(char* command) {
-    int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
-    seL4_Word registers[num_regs];
+    seL4_Word registers[x86_MAX_REGISTERS] = {0};
     /*? me.from_instance.name ?*/_read_registers(badge, registers);
-    int buf_len = num_regs * sizeof(int) * CHAR_HEX_SIZE + 1;
+    int buf_len = x86_MAX_REGISTERS * sizeof(int) * CHAR_HEX_SIZE + 1;
     char data[buf_len];
-    for (int i = 0; i < num_regs; i++) {
+    memset(data, 0, buf_len);
+    for (int i = 0; i < x86_MAX_REGISTERS; i++) {
         sprintf(data + sizeof(seL4_Word) * CHAR_HEX_SIZE * i, 
                 "%08x", __builtin_bswap32(registers[i]));
     }
-    unsigned char checksum = compute_checksum(data, buf_len);
-    gdb_printf("$%.*s#%02x\n", buf_len, data, checksum);
+    send_message(data, buf_len);
 }
 
 static void GDB_read_register(char* command) {
@@ -190,47 +190,38 @@ static void GDB_read_register(char* command) {
     // Get which register we want to read
     char *register_string = strtok(command + 1, "#");
     if (register_string == NULL) {
-        char error[] = "E00";
-        unsigned char checksum = compute_checksum(error, strlen(error));
-        gdb_printf("$%s#%02x\n", error, checksum);
+        send_message("E00", 0);
         return;
     }
     int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
     seL4_Word reg_num = strtol(register_string, NULL, 16);
-    if (reg_num >= num_regs) {
-        char error[] = "E00";
-        unsigned char checksum = compute_checksum(error, strlen(error));
-        gdb_printf("$%s#%02x\n", error, checksum);
+    if (reg_num >= x86_INVALID_REGISTER) {
+        send_message("E00", 0);
         return;
     }
-    /*? me.from_instance.name ?*/_read_register(badge, &reg, reg_num);
+    // Convert to the register order we have
+    seL4_Word gdb_reg_num = x86_GDB_Register_Map[reg_num];
+    /*? me.from_instance.name ?*/_read_register(badge, &reg, gdb_reg_num);
     int buf_len = sizeof(seL4_Word) * CHAR_HEX_SIZE + 1;
     char data[buf_len];
     sprintf(data, "%02x", __builtin_bswap32(reg));
-    unsigned char checksum = compute_checksum(data, buf_len);
-    gdb_printf("$%2s#%02x\n", data, checksum);
+    send_message(data, buf_len);
 }
 
 static void GDB_write_general_registers(char *command) {
     char *data_string = strtok(command + 1, "#");
     int num_regs = sizeof(seL4_UserContext) / sizeof(seL4_Word);
     int num_regs_data = (strlen(data_string)) / (sizeof(int) * 2);
-    if (DEBUG_PRINT) printf("num_regs: %d, data regs: %d, len: %d\n", num_regs, num_regs_data, strlen(data_string));
     if (num_regs_data > num_regs) {
         num_regs_data = num_regs;
     }
     seL4_Word data[num_regs_data];
     char buf[50];
-    printf("Data string: %s\n", data_string);
     for (int i = 0; i < num_regs_data; i++) {
         memset(buf, 0, 50);
         strncpy(buf, data_string, sizeof(int) * 2);
-        printf("Test\n");
         data_string += sizeof(int) * 2;
-        printf("Test1 %p\n", buf);
         data[i] = (seL4_Word) strtol((char *) buf, NULL, 16);
-        printf("Test2\n");
-        if (DEBUG_PRINT) printf("Reg%d: %x\n", i, data[i]);
     }
     /*? me.from_instance.name ?*/_write_registers(badge, data, num_regs_data);
 }

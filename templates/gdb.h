@@ -19,8 +19,9 @@
 
 // Ok packet for GDB
 #define GDB_ACK                 "+"
-#define GDB_OK                  "$OK#9a"
-#define GDB_EMPTY               "$#00"
+#define x86_VALID_REGISTERS     10
+#define x86_MAX_REGISTERS       16
+#define x86_INVALID_REGISTER    10
 
 typedef struct gdb_buffer {
     uint32_t length;
@@ -35,7 +36,35 @@ typedef struct breakpoint_data {
 
 gdb_buffer_t buf;
 
-
+// Map registers in the order GDB expects them
+static unsigned char x86_GDB_Register_Map[13] = {
+    // eax
+    3,
+    // ecx
+    5,
+    // edx
+    6,
+    // ebx
+    4,
+    // esp
+    1,
+    // ebp
+    9,
+    // esi
+    7,
+    // edi
+    8,
+    // eip
+    0,
+    // eflags
+    2,
+    // cs - invalid
+    x86_INVALID_REGISTER,
+    // ss - invalid
+    x86_INVALID_REGISTER,
+    // ds - invalid
+    x86_INVALID_REGISTER
+};
 
 static int handle_gdb(void);
 static void handle_breakpoint(void);
@@ -51,7 +80,7 @@ static void breakpoint_init(void);
 static unsigned char save_breakpoint_data(seL4_Word addr);
 static void restore_breakpoint_data(unsigned char breakpoint_num);
 
-
+static void send_message(char *message, int len);
 
 static void GDB_read_memory(char *command);
 static void GDB_write_memory(char *command);
@@ -69,3 +98,4 @@ extern unsigned char* /*? me.from_instance.name ?*/_read_memory(seL4_Word addr, 
 extern void /*? me.from_instance.name ?*/_read_registers(seL4_Word tcb_cap, seL4_Word registers[]);
 extern void /*? me.from_instance.name ?*/_read_register(seL4_Word tcb_cap, seL4_Word *reg, seL4_Word reg_num);
 extern void /*? me.from_instance.name ?*/_write_registers(seL4_Word tcb_cap, seL4_Word registers[], int len);
+
