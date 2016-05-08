@@ -191,12 +191,12 @@ def main(argv):
     # Parse input
     vm_mode = False
     try:
-        opts, args = getopt.getopt(argv, "cmv")
+        opts, args = getopt.getopt(argv, "cmv:")
     except getopt.GetoptError as err:
         print str(err)
         sys.exit(1)
     if len(args) == 0:
-        print "Must provide project camkes file"
+        print "Not enough arguments"
         sys.exit(1)
     elif len(args) > 1:
         print "Too many args"
@@ -212,6 +212,7 @@ def main(argv):
             sys.exit(0)
         if o == "-v":
             vm_mode = True
+            vm = a
     # Open camkes file for parsing
     with open(apps_folder + project_camkes) as f:
         lines = f.readlines();
@@ -228,9 +229,9 @@ def main(argv):
     if vm_mode:
         print "vm mode"
         cpp = True
-        cpp_options  = ['-I/home/kalanag/Work/vm_debug/apps/c162_twovm/configurations', 
-                     '-I/home/kalanag/Work/vm_debug/apps/c162_twovm/../../components/VM', 
-                     '-DCAMKES_VM_CONFIG=c162_twovm', '-I/home/kalanag/Work/vm_debug/kernel/include/plat/%s' % plat]   
+        cpp_options  = ['-I/home/kalanag/Work/vm_debug/apps/%s/configurations' % vm, 
+                     '-I/home/kalanag/Work/vm_debug/apps/%s/../../components/VM' % vm, 
+                     '-DCAMKES_VM_CONFIG=%s' % vm, '-I/home/kalanag/Work/vm_debug/kernel/include/plat/%s' % plat]   
         include_path.append("/home/kalanag/Work/vm_debug/projects/vm/components") 
         include_path.append("/home/kalanag/Work/vm_debug/projects/vm/interfaces")       
     else:
