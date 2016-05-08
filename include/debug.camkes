@@ -2,5 +2,5 @@ composition {
     component debug_server debug;
     component debug_Serial debug_hw_serial;
     connection seL4HardwareIOPort debug_port(from debug.serial_port, to debug_hw_serial.serial);
-    connection seL4HardwareInterrupt interrupt1(from debug_hw_serial.irq, to debug.debug_serial_irq);
+    connection seL4HardwareInterrupt interrupt1(from debug_hw_serial.irq, to debug.serial_irq);
 }

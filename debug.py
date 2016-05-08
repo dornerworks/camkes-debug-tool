@@ -11,7 +11,7 @@ import re
 import shutil
 import getopt
 
-serial_irq_num = 20
+serial_irq_num = 4
 plat = "pc99"
 arch = "x86"
 apps_folder = os.path.realpath(__file__ + '/../../../apps/') + "/"
@@ -112,7 +112,7 @@ def generate_server_component(debug_components):
     server = ""
     server += "component debug_server {\n"
     server += "  uses IOPort serial_port;\n"
-    server += "  consumes IRQ%s debug_serial_irq;\n" % serial_irq_num
+    server += "  consumes IRQ%s serial_irq;\n" % serial_irq_num
     for component in debug_components:
         server += "  uses CAmkES_Debug %s_GDB_delegate;\n" % component
         server += "  provides CAmkES_Debug %s_fault;\n" % component
@@ -259,7 +259,7 @@ def main(argv):
     # Copy the templates into the project directory
     copy_templates(project_camkes)
     # Add our debug definitions
-    new_camkes = debug_definitions + parser.pretty(parser.show(target_ast))
+    new_camkes = parser.pretty(parser.show(target_ast))
     # Reparse and rearrange the included code
     procedures = []
     main = []
@@ -269,7 +269,7 @@ def main(argv):
             procedures.append(component)
         else:
             main.append(component)   
-    final_camkes = imports + parser.pretty(parser.show(procedures + main))
+    final_camkes = imports + debug_definitions + parser.pretty(parser.show(procedures + main))
     # Write new camkes file
     with open(apps_folder + project_camkes + ".dbg", 'w') as f:
         for line in final_camkes:
