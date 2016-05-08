@@ -11,6 +11,9 @@ import re
 import shutil
 import getopt
 
+serial_irq_num = 20
+plat = "pc99"
+arch = "x86"
 apps_folder = os.path.realpath(__file__ + '/../../../apps/') + "/"
 definitions_dir = os.path.realpath(__file__ + '/../include/definitions.camkes')
 templates_src_dir = os.path.realpath(__file__ + '/../templates') + "/"
@@ -77,15 +80,18 @@ def create_debug_component_types(target_ast, debug_types):
 def add_debug_declarations(target_ast, debug_components):
     # Cheat a little bit by parsing the new debug declarations separately then adding them in
     # Saves us having to manually call object constructors etc.
-    with open(debug_camkes) as f:
-        s = f.readlines();
-    i = 0;
+    global serial_irq_num
+    with open(debug_camkes) as debug_file:
+        camkes_text = debug_file.readlines()
+    i = 0
     for component in debug_components:
-        s.insert(-1, "connection seL4Debug debug%d_delegate(from debug.%s_GDB_delegate, to %s.GDB_delegate);" % (i, component, component))
-        s.insert(-1, "connection seL4GDB debug%d(from %s.fault, to debug.%s_fault);" % (i, component, component))
+        camkes_text.insert(-1, "connection seL4Debug debug%d_delegate(from debug.%s_GDB_delegate, \
+                      to %s.GDB_delegate);" % (i, component, component))
+        camkes_text.insert(-1, "connection seL4GDB debug%d(from %s.fault, to debug.%s_fault);"
+                     % (i, component, component))
         i += 1
-    s = "\n".join(s)
-    debug_ast = parser.parse_to_ast(s);
+    camkes_text = "\n".join(camkes_text)
+    debug_ast = parser.parse_to_ast(camkes_text)
     debug_instances = debug_ast[0].instances
     debug_connections = debug_ast[0].connections
     for assembly in target_ast:
@@ -95,17 +101,18 @@ def add_debug_declarations(target_ast, debug_components):
                     obj.instances += debug_instances
                     obj.connections += debug_connections
                 elif isinstance(obj, ast.Objects.Configuration):
-                    serial_irq = ast.Objects.Setting("hw_serial", "irq_attributes", 4);
+                    serial_irq = ast.Objects.Setting("debug_hw_serial", "irq_attributes", serial_irq_num)
                     obj.settings.append(serial_irq)
-                    serial_attr = ast.Objects.Setting("hw_serial", "serial_attributes", "\"0x3f8:0x3ff\"");
+                    serial_attr = ast.Objects.Setting("debug_hw_serial", "serial_attributes", "\"0x3f8:0x3ff\"")
                     obj.settings.append(serial_attr)
     return target_ast
 
 def generate_server_component(debug_components):
+    global serial_irq_num
     server = ""
     server += "component debug_server {\n"
     server += "  uses IOPort serial_port;\n"
-    server += "  consumes IRQ4 serial_irq;\n"
+    server += "  consumes IRQ%s debug_serial_irq;\n" % serial_irq_num
     for component in debug_components:
         server += "  uses CAmkES_Debug %s_GDB_delegate;\n" % component
         server += "  provides CAmkES_Debug %s_fault;\n" % component
@@ -113,8 +120,9 @@ def generate_server_component(debug_components):
     return server
 
 def get_debug_definitions():
+    global serial_irq_num
     with open(definitions_dir) as f:
-        s = f.read()
+        s = f.read() % serial_irq_num
     return s
 
 def update_makefile(project_camkes, debug_types):
@@ -174,14 +182,16 @@ def write_gdbinit(projects_name, debug_components):
     with open(top_folder + '.gdbinit', 'w+') as f:
         component_name = debug_components.keys()[0]
         f.write("target remote :1234\n")
-        f.write("symbol-file build/x86/pc99/%s/%s.instance.bin\n" % (projects_name, component_name))
+        f.write("symbol-file build/%s/%s/%s/%s.instance.bin\n" % 
+                (arch, plat, projects_name, component_name))
         
 
 
 def main(argv):
     # Parse input
+    vm_mode = False
     try:
-        opts, args = getopt.getopt(argv, "cm")
+        opts, args = getopt.getopt(argv, "cmv")
     except getopt.GetoptError as err:
         print str(err)
         sys.exit(1)
@@ -200,24 +210,36 @@ def main(argv):
         if o == "-c":
             clean_debug(project_camkes)
             sys.exit(0)
+        if o == "-v":
+            vm_mode = True
     # Open camkes file for parsing
     with open(apps_folder + project_camkes) as f:
         lines = f.readlines();
-    # Remove any global imports and add them back in later
-    s = ""
+    # Save any imports and add them back in
     imports = ""
-    import_regex = re.compile(r"import \<")
+    import_regex = re.compile(r'import .*')
     for line in lines:
-        if (import_regex.search(line)):
+        if import_regex.match(line):
             imports += line
-        else:
-            s += line
+
+    s = "\n".join(lines)
     # Parse using camkes parser
-    target_ast = parser.parse_to_ast(s);
-    include_path = ["include/builtin"]
+    include_path = ["/home/kalanag/Work/vm_debug/tools/camkes/include/builtin"]
+    if vm_mode:
+        print "vm mode"
+        cpp = True
+        cpp_options  = ['-I/home/kalanag/Work/vm_debug/apps/c162_twovm/configurations', 
+                     '-I/home/kalanag/Work/vm_debug/apps/c162_twovm/../../components/VM', 
+                     '-DCAMKES_VM_CONFIG=c162_twovm', '-I/home/kalanag/Work/vm_debug/kernel/include/plat/%s' % plat]   
+        include_path.append("/home/kalanag/Work/vm_debug/projects/vm/components") 
+        include_path.append("/home/kalanag/Work/vm_debug/projects/vm/interfaces")       
+    else:
+        cpp = False
+        cpp_options = []
+    target_ast = parser.parse_to_ast(s, cpp, cpp_options)  
     # Resolve other imports
     project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
-    target_ast, _ = parser.resolve_imports(target_ast, project_dir, include_path)
+    target_ast, _ = parser.resolve_imports(target_ast, project_dir, include_path, cpp, cpp_options)
     target_ast = parser.resolve_references(target_ast)
     # Find debug components declared in the camkes file
     debug_components = get_debug_components(target_ast)
@@ -235,15 +257,29 @@ def main(argv):
     update_makefile(project_camkes, debug_types)
     # Copy the templates into the project directory
     copy_templates(project_camkes)
-    # Output the camkes file
-    new_camkes = imports  + debug_definitions + parser.pretty(parser.show(target_ast))
+    # Add our debug definitions
+    new_camkes = debug_definitions + parser.pretty(parser.show(target_ast))
+    # Reparse and rearrange the included code
+    procedures = []
+    main = []
+    new_ast = parser.parse_to_ast(new_camkes, cpp, cpp_options)
+    for component in new_ast:
+        if isinstance(component, ast.Objects.Procedure):
+            procedures.append(component)
+        else:
+            main.append(component)   
+    final_camkes = imports + parser.pretty(parser.show(procedures + main))
+    # Write new camkes file
     with open(apps_folder + project_camkes + ".dbg", 'w') as f:
-        for line in new_camkes:
+        for line in final_camkes:
             f.write(line)
     # Write a gdbinit file
     name_regex = re.compile(r"(.*)/")
     m = name_regex.search(project_camkes)
-    write_gdbinit(m.group(1), debug_components)
+    if debug_components:
+        write_gdbinit(m.group(1), debug_components)
+    else:
+        print "No debug components found"
 
 if __name__ == "__main__":
     main(sys.argv[1:])
