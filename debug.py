@@ -1,23 +1,22 @@
 #!/usr/bin/env python
 import sys
 import os
-camkes_path =  os.path.realpath(__file__ + '/../../camkes/')
+camkes_path = os.path.realpath(__file__ + '/../../camkes/')
 sys.path.insert(0, camkes_path)
 import camkes.parser as parser
 import camkes.ast as ast
-import code
 import copy
 import re
 import shutil
 import getopt
 
-serial_irq_num = 4
-plat = "pc99"
-arch = "x86"
-apps_folder = os.path.realpath(__file__ + '/../../../apps/') + "/"
-definitions_dir = os.path.realpath(__file__ + '/../include/definitions.camkes')
-templates_src_dir = os.path.realpath(__file__ + '/../templates') + "/"
-debug_camkes = os.path.realpath(__file__ + '/../include/debug.camkes')
+from debug_config import SERIAL_IRQ_NUM, SERIAL_PORTS, \
+                         PLAT, ARCH
+
+APPS_FOLDER = os.path.realpath(__file__ + '/../../../apps/') + "/"
+DEFINITIONS_DIR = os.path.realpath(__file__ + '/../include/definitions.camkes')
+TEMPLATES_SRC_DIR = os.path.realpath(__file__ + '/../templates') + "/"
+DEBUG_CAMKES = os.path.realpath(__file__ + '/../include/debug.camkes')
 
 # Find debug components declared in the camkes file
 def get_debug_components(target_ast):
@@ -49,14 +48,13 @@ def get_debug_component_types(target_ast, debug_components):
                             if instance.name in debug_components:
                                 type_ref = instance.children()[0]
                                 old_type_name = copy.copy(type_ref._symbol)
-                                type_ref._symbol = "debug_" + type_ref._symbol
+                                type_ref._symbol = type_ref._symbol
                                 debug_types[old_type_name] = type_ref._symbol
     return debug_types
 
 # Generate the new types
 def create_debug_component_types(target_ast, debug_types):
-    debug_components = []
-    for component in target_ast:
+    for index, component in enumerate(target_ast):
         if isinstance(component, ast.Objects.Component):
             # Find the debug types and copy the definition
             # Add the necessary interfaces
@@ -70,18 +68,16 @@ def create_debug_component_types(target_ast, debug_types):
                 # Get the component as a string and re-parse it with the new interfaces
                 string = debug_component.__repr__().split()
                 string[-1:-1] = new_interface.split()
-                string =  " ".join(string)
-                debug_ast = parser.parse_to_ast(string);
-                # Add the new component to the list
-                debug_components.append(debug_ast[0])
-    target_ast = debug_components + target_ast
+                string = " ".join(string)
+                debug_ast = parser.parse_to_ast(string)
+                # Replace the debug component
+                target_ast[index] = debug_ast[0]
     return target_ast
 
 def add_debug_declarations(target_ast, debug_components):
     # Cheat a little bit by parsing the new debug declarations separately then adding them in
     # Saves us having to manually call object constructors etc.
-    global serial_irq_num
-    with open(debug_camkes) as debug_file:
+    with open(DEBUG_CAMKES) as debug_file:
         camkes_text = debug_file.readlines()
     i = 0
     for component in debug_components:
@@ -101,18 +97,19 @@ def add_debug_declarations(target_ast, debug_components):
                     obj.instances += debug_instances
                     obj.connections += debug_connections
                 elif isinstance(obj, ast.Objects.Configuration):
-                    serial_irq = ast.Objects.Setting("debug_hw_serial", "irq_attributes", serial_irq_num)
+                    serial_irq = ast.Objects.Setting("debug_hw_serial", "irq_attributes", \
+                                                     SERIAL_IRQ_NUM)
                     obj.settings.append(serial_irq)
-                    serial_attr = ast.Objects.Setting("debug_hw_serial", "serial_attributes", "\"0x3f8:0x3ff\"")
+                    serial_attr = ast.Objects.Setting("debug_hw_serial", "serial_attributes",\
+                                                      "\"%s\"" % SERIAL_PORTS)
                     obj.settings.append(serial_attr)
     return target_ast
 
 def generate_server_component(debug_components):
-    global serial_irq_num
     server = ""
     server += "component debug_server {\n"
     server += "  uses IOPort serial_port;\n"
-    server += "  consumes IRQ%s serial_irq;\n" % serial_irq_num
+    server += "  consumes IRQ%s serial_irq;\n" % SERIAL_IRQ_NUM
     for component in debug_components:
         server += "  uses CAmkES_Debug %s_GDB_delegate;\n" % component
         server += "  provides CAmkES_Debug %s_fault;\n" % component
@@ -120,49 +117,52 @@ def generate_server_component(debug_components):
     return server
 
 def get_debug_definitions():
-    global serial_irq_num
-    with open(definitions_dir) as f:
-        s = f.read() % serial_irq_num
-    return s
+    with open(DEFINITIONS_DIR) as definitions_file:
+        definitions_text = definitions_file.read() % SERIAL_IRQ_NUM
+    return definitions_text
 
 def update_makefile(project_camkes, debug_types):
-    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
+    project_dir = os.path.dirname(os.path.realpath(APPS_FOLDER + project_camkes)) + "/"
     if not os.path.isfile(project_dir + "Makefile.bk"):
         # Read makefile
-        with open(project_dir + "Makefile", 'r+') as f:
-            makefile_text = f.readlines()
+        with open(project_dir + "Makefile", 'r+') as orig_makefile:
+            makefile_text = orig_makefile.readlines()
         # Backup Makefile
-        with open(project_dir + "Makefile.bk", 'w+') as f2:
+        with open(project_dir + "Makefile.bk", 'w+') as bk_makefile:
             for line in makefile_text:
-                f2.write(line)
-        new_lines = list()
-        cfile_regex = re.compile(r"(.*)_CFILES")
+                bk_makefile.write(line)
+        # Search for the ADL and Templates liat and modify them
+        templates_found = False
         adl_regex = re.compile(r"ADL")
+        template_regex = re.compile(r'TEMPLATES :=')
         for index, line in enumerate(makefile_text):
-            component_search = cfile_regex.search(line)
-            if component_search:
-                if component_search.group(1) in debug_types:
-                    new_lines.append("debug_" + line)
-                #print debug_components
+            if template_regex.search(line):
+                # Add the debug templates
+                makefile_text[index] = line.rstrip() + " debug\n"
+                templates_found = True
             if adl_regex.search(line):
+                # Change the CDL target
                 makefile_text[index] = line.rstrip() + ".dbg\n"
         makefile_text.append("\n\n")
-        # Add template location
-        new_lines.append("TEMPLATES := debug\n")
+        # Add templates if they didn't define their own
+        new_lines = list()
+        if not templates_found:
+            new_lines.append("TEMPLATES := debug\n")
+        # Write out new makefile
         makefile_text = new_lines + makefile_text
-        with open(project_dir + "Makefile", 'w') as f:
+        with open(project_dir + "Makefile", 'w') as new_makefile:
             for line in makefile_text:
-                f.write(line)
+                new_makefile.write(line)
 
 # Cleanup any new files generated
 def clean_debug(project_camkes):
-    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
+    project_dir = os.path.dirname(os.path.realpath(APPS_FOLDER + project_camkes)) + "/"
     if os.path.isfile(project_dir + "Makefile.bk"):
         os.remove(project_dir + "Makefile")
         os.rename(project_dir + "Makefile.bk", 
                   project_dir + "Makefile")
-    if os.path.isfile(apps_folder + project_camkes + ".dbg"):
-        os.remove(apps_folder + project_camkes + ".dbg")
+    if os.path.isfile(APPS_FOLDER + project_camkes + ".dbg"):
+        os.remove(APPS_FOLDER + project_camkes + ".dbg")
     if os.path.isdir(project_dir + "debug"):
         shutil.rmtree(project_dir + "debug")
     top_folder = os.path.realpath(__file__ + '/../../..') + "/"
@@ -171,19 +171,19 @@ def clean_debug(project_camkes):
 
 # Copy the templates to the project folder
 def copy_templates(project_camkes):
-    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
+    project_dir = os.path.dirname(os.path.realpath(APPS_FOLDER + project_camkes)) + "/"
     if not os.path.exists(project_dir + "debug"):
-        shutil.copytree(templates_src_dir, project_dir + "debug")
+        shutil.copytree(TEMPLATES_SRC_DIR, project_dir + "debug")
 
 # Write a .gdbinit file
 # Currently only loads the symbol table for the first debug component
 def write_gdbinit(projects_name, debug_components):
     top_folder = os.path.realpath(__file__ + '/../../..') + "/"
-    with open(top_folder + '.gdbinit', 'w+') as f:
+    with open(top_folder + '.gdbinit', 'w+') as gdbinit_file:
         component_name = debug_components.keys()[0]
-        f.write("target remote :1234\n")
-        f.write("symbol-file build/%s/%s/%s/%s.instance.bin\n" % 
-                (arch, plat, projects_name, component_name))
+        gdbinit_file.write("target remote :1234\n")
+        gdbinit_file.write("symbol-file build/%s/%s/%s/%s.instance.bin\n" % 
+                (ARCH, PLAT, projects_name, component_name))
         
 
 
@@ -203,19 +203,19 @@ def main(argv):
         sys.exit(1)
     else:
         project_camkes = args[0]
-        if not os.path.isfile(apps_folder + project_camkes):
-            print "File not found: %s" % apps_folder + project_camkes
+        if not os.path.isfile(APPS_FOLDER + project_camkes):
+            print "File not found: %s" % APPS_FOLDER + project_camkes
             sys.exit(1)
-    for o, a in opts:
-        if o == "-c":
+    for opt, arg in opts:
+        if opt == "-c":
             clean_debug(project_camkes)
             sys.exit(0)
-        if o == "-v":
+        if opt == "-v":
             vm_mode = True
-            vm = a
+            vm = arg
     # Open camkes file for parsing
-    with open(apps_folder + project_camkes) as f:
-        lines = f.readlines();
+    with open(APPS_FOLDER + project_camkes) as camkes_file:
+        lines = camkes_file.readlines()
     # Save any imports and add them back in
     imports = ""
     import_regex = re.compile(r'import .*')
@@ -223,23 +223,25 @@ def main(argv):
         if import_regex.match(line):
             imports += line
 
-    s = "\n".join(lines)
+    camkes_text = "\n".join(lines)
     # Parse using camkes parser
-    include_path = ["/home/kalanag/Work/vm_debug/tools/camkes/include/builtin"]
+    camkes_builtin_path = os.path.realpath(__file__ + '/../../camkes/include/builtin')
+    include_path = [camkes_builtin_path]
     if vm_mode:
         print "vm mode"
         cpp = True
-        cpp_options  = ['-I/home/kalanag/Work/vm_debug/apps/%s/configurations' % vm, 
-                     '-I/home/kalanag/Work/vm_debug/apps/%s/../../components/VM' % vm, 
-                     '-DCAMKES_VM_CONFIG=%s' % vm, '-I/home/kalanag/Work/vm_debug/kernel/include/plat/%s' % plat]   
-        include_path.append("/home/kalanag/Work/vm_debug/projects/vm/components") 
-        include_path.append("/home/kalanag/Work/vm_debug/projects/vm/interfaces")       
+        config_path = os.path.realpath(__file__ + '/../../../apps/%s/configurations' % vm)
+        vm_components_path = os.path.realpath(__file__ + '/../../../apps/%s/../../components/VM' % vm)
+        plat_includes = os.path.realpath(__file__ + '/../../../kernel/include/plat/%s' % PLAT)
+        cpp_options  = ['-DCAMKES_VM_CONFIG=%s' % vm, "-I"+config_path, "-I"+vm_components_path, "-I"+plat_includes]
+        include_path.append(os.path.realpath(__file__ + "/../../../projects/vm/components"))
+        include_path.append(os.path.realpath(__file__ + "/../../../projects/vm/interfaces"))
     else:
         cpp = False
         cpp_options = []
-    target_ast = parser.parse_to_ast(s, cpp, cpp_options)  
+    target_ast = parser.parse_to_ast(camkes_text, cpp, cpp_options)  
     # Resolve other imports
-    project_dir = os.path.dirname(os.path.realpath(apps_folder + project_camkes)) + "/"
+    project_dir = os.path.dirname(os.path.realpath(APPS_FOLDER + project_camkes)) + "/"
     target_ast, _ = parser.resolve_imports(target_ast, project_dir, include_path, cpp, cpp_options)
     target_ast = parser.resolve_references(target_ast)
     # Find debug components declared in the camkes file
@@ -250,7 +252,7 @@ def main(argv):
     target_ast = create_debug_component_types(target_ast, debug_types)
     # Add declarations for the new types
     target_ast = add_debug_declarations(target_ast, debug_components)
-        # Get the static definitions needed every time
+    # Get the static definitions needed every time
     debug_definitions = get_debug_definitions()
     # Generate server based on debug components
     debug_definitions += generate_server_component(debug_components)
@@ -262,23 +264,23 @@ def main(argv):
     new_camkes = parser.pretty(parser.show(target_ast))
     # Reparse and rearrange the included code
     procedures = []
-    main = []
+    main_ast = []
     new_ast = parser.parse_to_ast(new_camkes, cpp, cpp_options)
     for component in new_ast:
         if isinstance(component, ast.Objects.Procedure):
             procedures.append(component)
         else:
-            main.append(component)   
-    final_camkes = imports + debug_definitions + parser.pretty(parser.show(procedures + main))
+            main_ast.append(component)   
+    final_camkes = imports + debug_definitions + parser.pretty(parser.show(procedures + main_ast))
     # Write new camkes file
-    with open(apps_folder + project_camkes + ".dbg", 'w') as f:
+    with open(APPS_FOLDER + project_camkes + ".dbg", 'w') as f:
         for line in final_camkes:
             f.write(line)
     # Write a gdbinit file
     name_regex = re.compile(r"(.*)/")
-    m = name_regex.search(project_camkes)
+    search = name_regex.search(project_camkes)
     if debug_components:
-        write_gdbinit(m.group(1), debug_components)
+        write_gdbinit(search.group(1), debug_components)
     else:
         print "No debug components found"
 
