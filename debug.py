@@ -36,8 +36,9 @@ def get_debug_components(target_ast):
 # Use the declared debug components to find the types we must generate
 def get_debug_component_types(target_ast, debug_components):
     debug_types = dict()
+    target_assembly = None
     for assembly in target_ast:
-        if isinstance(assembly, ast.Objects.Assembly):
+        if isinstance(assembly, ast.Objects.Assembly) or isinstance(assembly, ast.Objects.Component):
             for composition in assembly.children():
                 if isinstance(composition, ast.Objects.Composition):
                     for instance in composition.children():
@@ -50,7 +51,9 @@ def get_debug_component_types(target_ast, debug_components):
                                 old_type_name = copy.copy(type_ref._symbol)
                                 type_ref._symbol = type_ref._symbol
                                 debug_types[old_type_name] = type_ref._symbol
-    return debug_types
+                                target_assembly = assembly
+
+    return debug_types, target_assembly
 
 # Generate the new types
 def create_debug_component_types(target_ast, debug_types):
@@ -74,7 +77,7 @@ def create_debug_component_types(target_ast, debug_types):
                 target_ast[index] = debug_ast[0]
     return target_ast
 
-def add_debug_declarations(target_ast, debug_components):
+def add_debug_declarations(target_ast, debug_components, target_assembly):
     # Cheat a little bit by parsing the new debug declarations separately then adding them in
     # Saves us having to manually call object constructors etc.
     with open(DEBUG_CAMKES) as debug_file:
@@ -91,7 +94,7 @@ def add_debug_declarations(target_ast, debug_components):
     debug_instances = debug_ast[0].instances
     debug_connections = debug_ast[0].connections
     for assembly in target_ast:
-        if isinstance(assembly, ast.Objects.Assembly):
+        if assembly == target_assembly:
             for obj in assembly.children():
                 if isinstance(obj, ast.Objects.Composition):
                     obj.instances += debug_instances
@@ -247,11 +250,11 @@ def main(argv):
     # Find debug components declared in the camkes file
     debug_components = get_debug_components(target_ast)
     # Use the declared debug components to find the types we must generate
-    debug_types = get_debug_component_types(target_ast, debug_components)
+    debug_types, target_assembly = get_debug_component_types(target_ast, debug_components)
     # Generate the new types
     target_ast = create_debug_component_types(target_ast, debug_types)
     # Add declarations for the new types
-    target_ast = add_debug_declarations(target_ast, debug_components)
+    target_ast = add_debug_declarations(target_ast, debug_components, target_assembly)
     # Get the static definitions needed every time
     debug_definitions = get_debug_definitions()
     # Generate server based on debug components
