@@ -1,4 +1,20 @@
 #!/usr/bin/env python
+
+#
+# Copyright 2017, DornerWorks
+#
+# This software may be distributed and modified according to the terms of
+# the GNU General Public License version 2. Note that NO WARRANTY is provided.
+# See "LICENSE_GPLv2.txt" for details.
+#
+# @TAG(DORNERWORKS_GPL)
+#
+# This data was produced by DornerWorks, Ltd. of Grand Rapids, MI, USA under
+# a DARPA SBIR, Contract Number D16PC00107.
+#
+# Approved for Public Release, Distribution Unlimited.
+#
+
 import sys
 import os
 camkes_path = os.path.realpath(__file__ + '/../../camkes/')
@@ -10,17 +26,20 @@ import re
 import shutil
 import getopt
 
-from debug_config import SERIAL_IRQ_NUM, SERIAL_PORTS, \
-                         PLAT, ARCH
+from debug_config import get_composition, serial_platform_info
 
-APPS_FOLDER = os.path.realpath(__file__ + '/../../../apps/') + "/"
+PROJECT_FOLDER = os.environ.get('SOURCE_DIR') + "/"
 DEFINITIONS_DIR = os.path.realpath(__file__ + '/../include/definitions.camkes')
+CONFIG_CAMKES = os.path.realpath(__file__ + '/../include/configurations.camkes')
 TEMPLATES_SRC_DIR = os.path.realpath(__file__ + '/../templates') + "/"
-DEBUG_CAMKES = os.path.realpath(__file__ + '/../include/debug.camkes')
+DOT_CONFIG = os.environ.get('PWD') + "/.config"
 
-# Find debug components declared in the camkes file
+# Parse the AST and find the declared debug components
 def get_debug_components(target_ast):
-    debug = dict()
+    debug_types = dict()
+    target_assembly = None
+
+    # First find debug declaration in configuration
     for assembly in target_ast:
         if isinstance(assembly, ast.Objects.Assembly):
             for config in assembly.children():
@@ -28,171 +47,199 @@ def get_debug_components(target_ast):
                     # Find the configuration
                     for setting in config.settings:
                         # Go through each one and look for a debug attribute
-                        if setting.attribute == 'debug':
-                            debug[setting.instance] = None
-                            config.settings.remove(setting)
-    return debug
+                        if setting.attribute == 'debug' and setting.value == '"True"':
+                            debug_types[setting.instance] = True
 
-# Use the declared debug components to find the types we must generate
-def get_debug_component_types(target_ast, debug_components):
-    debug_types = dict()
-    target_assembly = None
     for assembly in target_ast:
         if isinstance(assembly, ast.Objects.Assembly) or isinstance(assembly, ast.Objects.Component):
             for composition in assembly.children():
                 if isinstance(composition, ast.Objects.Composition):
                     for instance in composition.children():
                         if isinstance(instance, ast.Objects.Instance):
-                            # Go through each declared component, 
-                            # and check if it is a debug component
-                            # Copy the type and prefix with debug_
-                            if instance.name in debug_components:
-                                type_ref = instance.children()[0]
-                                old_type_name = copy.copy(type_ref._symbol)
-                                type_ref._symbol = type_ref._symbol
-                                debug_types[old_type_name] = type_ref._symbol
+                            if debug_types.get(instance.name):
+                                del debug_types[instance.name]
+                                debug_types[str(instance.children()[0])] = instance.name
                                 target_assembly = assembly
-
     return debug_types, target_assembly
 
-# Generate the new types
-def create_debug_component_types(target_ast, debug_types):
-    for index, component in enumerate(target_ast):
-        if isinstance(component, ast.Objects.Component):
-            # Find the debug types and copy the definition
-            # Add the necessary interfaces
-            if component.name in debug_types:
-                debug_component = copy.copy(component)
-                debug_component.name = debug_types[component.name]
-                #Have to make a new component with the debug connections
-                # These are the debug interfaces
-                new_interface = "uses CAmkES_Debug fault;\n"
-                new_interface += "provides CAmkES_Debug GDB_delegate;\n"
-                # Get the component as a string and re-parse it with the new interfaces
-                string = debug_component.__repr__().split()
-                string[-1:-1] = new_interface.split()
-                string = " ".join(string)
-                debug_ast = parser.parse_to_ast(string)
-                # Replace the debug component
-                target_ast[index] = debug_ast[0]
-    return target_ast
+def add_serial_debug_declarations(target_ast, debug_components, selected_arm_plat):
+    camkes_composition = get_composition()
+    instance = debug_components.values()[0]
 
-def add_debug_declarations(target_ast, debug_components, target_assembly):
-    # Cheat a little bit by parsing the new debug declarations separately then adding them in
-    # Saves us having to manually call object constructors etc.
-    with open(DEBUG_CAMKES) as debug_file:
-        camkes_text = debug_file.readlines()
-    i = 0
-    for component in debug_components:
-        camkes_text.insert(-1, "connection seL4Debug debug%d_delegate(from debug.%s_GDB_delegate, \
-                      to %s.GDB_delegate);" % (i, component, component))
-        camkes_text.insert(-1, "connection seL4GDB debug%d(from %s.fault, to debug.%s_fault);"
-                     % (i, component, component))
-        i += 1
-    camkes_text = "\n".join(camkes_text)
-    debug_ast = parser.parse_to_ast(camkes_text)
-    debug_instances = debug_ast[0].instances
-    debug_connections = debug_ast[0].connections
+    # We always need to insert the GDB and Delegate connections
+    camkes_composition.insert(-1, "connection seL4Debug debug_delegate(from debug.%s_GDB_delegate, to %s.GDB_delegate);" \
+                              % (instance, instance))
+    camkes_composition.insert(-1, "connection seL4GDB debug_fault(from %s.fault, to debug.%s_fault);" \
+                              % (instance, instance))
+    # Add UART Specific connections
+    camkes_composition.insert(-1, "connection seL4HardwareMMIO uart_mem(from %s.uart_mem, to debug_hw_serial.uart_mem);" \
+                              % instance)
+    camkes_composition.insert(-1, "connection seL4HardwareInterrupt uart_irq(from debug_hw_serial.uart_irq, to %s.uart_irq);" \
+                              % instance)
+    camkes_composition.insert(-1, "connection seL4UART uart_conn(from %s.uart, to debug_hw_serial.uart_inf);" \
+                              % instance)
+
+    camkes_composition = "\n".join(camkes_composition)
+    debug_ast = parser.parse_to_ast(camkes_composition)
+
+    # update the target assembly to include components,connections,and configuration found in "include"
     for assembly in target_ast:
-        if assembly == target_assembly:
+        if isinstance(assembly, ast.Objects.Assembly):
             for obj in assembly.children():
                 if isinstance(obj, ast.Objects.Composition):
-                    obj.instances += debug_instances
-                    obj.connections += debug_connections
+                    obj.instances += debug_ast[0].instances
+                    obj.connections += debug_ast[0].connections
                 elif isinstance(obj, ast.Objects.Configuration):
-                    serial_irq = ast.Objects.Setting("debug_hw_serial", "irq_attributes", \
-                                                     SERIAL_IRQ_NUM)
-                    obj.settings.append(serial_irq)
-                    serial_attr = ast.Objects.Setting("debug_hw_serial", "serial_attributes",\
-                                                      "\"%s\"" % SERIAL_PORTS)
-                    obj.settings.append(serial_attr)
+                    mem, irq = serial_platform_info(selected_arm_plat)
+                    obj.settings.append(ast.Objects.Setting("debug_hw_serial", "uart_mem_attributes", "\"%s\"" % mem))
+                    obj.settings.append(ast.Objects.Setting("debug_hw_serial", "uart_irq_attributes", "%d" % irq))
+                    obj.settings.append(ast.Objects.Setting("%s" % instance, "uart_num", "%d" % 1))
+
     return target_ast
 
 def generate_server_component(debug_components):
     server = ""
-    server += "component debug_server {\n"
-    server += "  uses IOPort serial_port;\n"
-    server += "  consumes IRQ%s serial_irq;\n" % SERIAL_IRQ_NUM
-    for component in debug_components:
-        server += "  uses CAmkES_Debug %s_GDB_delegate;\n" % component
-        server += "  provides CAmkES_Debug %s_fault;\n" % component
-    server += "}\n"
+
+    server += "component DebugSerial {\n"
+    server += "  hardware;\n  dataport Buf uart_mem;\n  emits IRQ uart_irq;\n  provides UART uart_inf;\n}\n\n"
+
+    server += "component DebugServer {\n"
+    for instance in debug_components.values():
+        server += "  uses CAmkES_Debug %s_GDB_delegate;\n" % instance
+        server += "  provides CAmkES_Debug %s_fault;\n" % instance
+
+    server += "}\n\n"
     return server
 
 def get_debug_definitions():
+
     with open(DEFINITIONS_DIR) as definitions_file:
-        definitions_text = definitions_file.read() % SERIAL_IRQ_NUM
+        definitions_text = definitions_file.read()
+
+    definitions_text += "import <UART.idl4>;\n"
+
     return definitions_text
 
-def update_makefile(project_camkes, debug_types):
-    project_dir = os.path.dirname(os.path.realpath(APPS_FOLDER + project_camkes)) + "/"
+def update_component_config(project_dir, debug_types):
+    for keys in debug_types.keys():
+        source = project_dir + 'components/' + keys + '/' + keys
+
+        #if the backed up file DOESN'T EXIST
+        if not os.path.isfile(source + ".camkes.bk"):
+            with open(source + ".camkes", 'r+') as component_decl:
+                component_text = component_decl.readlines()
+
+            # Backup component
+            with open(source + ".camkes.bk", 'w+') as component_bk:
+                for line in component_text:
+                    component_bk.write(line)
+
+            # We search for the debugged component's declaration to add the gdb method connections
+            adl_component = re.compile(r"component " + keys)
+
+            component_found = False
+            for index, line in enumerate(component_text):
+                if adl_component.search(line):
+                    if '{' in line:
+                        x = index + 1
+                    else:
+                        x = index + 2
+                    component_found = True
+                    break
+
+            if component_found:
+                new_interface =  "    uses CAmkES_Debug fault;\n    provides CAmkES_Debug GDB_delegate;\n"
+
+                new_interface += "    dataport Buf uart_mem;\n    consumes IRQ uart_irq;\n    uses UART uart;\n"
+                new_imports = "import <UART.idl4>;\n"
+
+                component_text.insert(x, new_interface)
+                component_text.insert(0, new_imports)
+
+            # Re-write component
+            with open(source + ".camkes", 'w+') as component_rw:
+                for line in component_text:
+                    component_rw.write(line)
+
+
+def update_makefile(project_dir):
+    # If the backup file doesn't exist, we need to make one!
     if not os.path.isfile(project_dir + "Makefile.bk"):
         # Read makefile
         with open(project_dir + "Makefile", 'r+') as orig_makefile:
             makefile_text = orig_makefile.readlines()
+
         # Backup Makefile
         with open(project_dir + "Makefile.bk", 'w+') as bk_makefile:
             for line in makefile_text:
                 bk_makefile.write(line)
+
         # Search for the ADL and Templates liat and modify them
         templates_found = False
+
         adl_regex = re.compile(r"ADL")
         template_regex = re.compile(r'TEMPLATES :=')
+
+        # Go through Makefile text and append the neccessary changes
         for index, line in enumerate(makefile_text):
             if template_regex.search(line):
-                # Add the debug templates
-                makefile_text[index] = line.rstrip() + " debug\n"
                 templates_found = True
+                makefile_text[index] = line.rstrip() + "gdb_templates\n"
             if adl_regex.search(line):
-                # Change the CDL target
                 makefile_text[index] = line.rstrip() + ".dbg\n"
         makefile_text.append("\n\n")
-        # Add templates if they didn't define their own
+
+        # Add Templates if the project doesn't define their own
         new_lines = list()
         if not templates_found:
-            new_lines.append("TEMPLATES := debug\n")
+            new_lines.append("TEMPLATES := gdb_templates\n")
+
         # Write out new makefile
         makefile_text = new_lines + makefile_text
         with open(project_dir + "Makefile", 'w') as new_makefile:
             for line in makefile_text:
                 new_makefile.write(line)
 
+# Copy the templates to the project folder
+def copy_templates(project_dir):
+    if not os.path.exists(project_dir + "gdb_templates"):
+        os.symlink(TEMPLATES_SRC_DIR + 'gdb_templates/', project_dir + 'gdb_templates')
+
+def write_gdbinit(projects_name, debug_components, selected_arm_plat):
+    top_folder = os.environ.get('PWD') + "/"
+    for component in debug_components.values():
+        with open(top_folder + '%s.gdbinit' % component, 'w+') as gdbinit_file:
+            gdbinit_file.write("symbol-file build/arm/%s/%s/%s.instance.bin\n" %
+                               (selected_arm_plat, projects_name, component))
+            gdbinit_file.write("set serial baud 115200\n")
+
 # Cleanup any new files generated
-def clean_debug(project_camkes):
-    project_dir = os.path.dirname(os.path.realpath(APPS_FOLDER + project_camkes)) + "/"
+def clean_debug(project_dir, camkes_file, debug_types):
+    import string
+    for keys in debug_types.keys():
+        source = project_dir + 'components/' + keys + '/'
+        if os.path.isfile(source + keys + ".camkes.bk"):
+            path, name = os.path.split(source + keys + ".camkes")
+            path += '/'
+            os.remove(path + name)
+            os.rename(path + name + ".bk", path + name)
+
     if os.path.isfile(project_dir + "Makefile.bk"):
         os.remove(project_dir + "Makefile")
-        os.rename(project_dir + "Makefile.bk", 
-                  project_dir + "Makefile")
-    if os.path.isfile(APPS_FOLDER + project_camkes + ".dbg"):
-        os.remove(APPS_FOLDER + project_camkes + ".dbg")
-    if os.path.isdir(project_dir + "debug"):
-        shutil.rmtree(project_dir + "debug")
-    top_folder = os.path.realpath(__file__ + '/../../..') + "/"
-    if os.path.isfile(top_folder + ".gdbinit"):
-        os.remove(top_folder + ".gdbinit")
+        os.rename(project_dir + "Makefile.bk", project_dir + "Makefile")
 
-# Copy the templates to the project folder
-def copy_templates(project_camkes):
-    project_dir = os.path.dirname(os.path.realpath(APPS_FOLDER + project_camkes)) + "/"
-    if not os.path.exists(project_dir + "debug"):
-        shutil.copytree(TEMPLATES_SRC_DIR, project_dir + "debug")
+    if os.path.isfile(project_dir + camkes_file + ".dbg"):
+        os.remove(project_dir + camkes_file + ".dbg")
+    if os.path.isdir(project_dir + "gdb_templates"):
+        os.unlink(project_dir + 'gdb_templates');
 
-# Write a .gdbinit file
-# Currently only loads the symbol table for the first debug component
-def write_gdbinit(projects_name, debug_components):
-    top_folder = os.path.realpath(__file__ + '/../../..') + "/"
-    with open(top_folder + '.gdbinit', 'w+') as gdbinit_file:
-        component_name = debug_components.keys()[0]
-        gdbinit_file.write("target remote :1234\n")
-        gdbinit_file.write("symbol-file build/%s/%s/%s/%s.instance.bin\n" % 
-                (ARCH, PLAT, projects_name, component_name))
-        
-
+    top_folder = os.environ.get('PWD') + "/"
+    for instance in debug_types.values():
+        if os.path.isfile(top_folder + "%s.gdbinit" % instance):
+            os.remove(top_folder + "%s.gdbinit" % instance)
 
 def main(argv):
     # Parse input
-    vm_mode = False
     try:
         opts, args = getopt.getopt(argv, "cmv:")
     except getopt.GetoptError as err:
@@ -205,87 +252,64 @@ def main(argv):
         print "Too many args"
         sys.exit(1)
     else:
-        project_camkes = args[0]
-        if not os.path.isfile(APPS_FOLDER + project_camkes):
-            print "File not found: %s" % APPS_FOLDER + project_camkes
+        project_camkes_config = args[0]
+        if not os.path.isfile(PROJECT_FOLDER + project_camkes_config):
+            print "File not found: %s" % PROJECT_FOLDER + project_camkes_config
             sys.exit(1)
+
+    # Open camkes file for parsing
+    with open(PROJECT_FOLDER + project_camkes_config) as camkes_file:
+        lines = camkes_file.readlines()
+
+    # Make our configuration usable by the parser
+    camkes_text = "\n".join(lines)
+    target_ast = parser.parse_to_ast(camkes_text, False, )
+
+    # Use the declared debug components to find the types we must generate - end up with component names
+    debug_types, target_assembly = get_debug_components(target_ast)
+
+    if len(debug_types) == 0:
+        print "No debug components found. Exiting"
+        sys.exit(0)
+
     for opt, arg in opts:
         if opt == "-c":
-            clean_debug(project_camkes)
+            clean_debug(PROJECT_FOLDER, project_camkes_config, debug_types)
             sys.exit(0)
-        if opt == "-v":
-            vm_mode = True
-            vm = arg
-    # Open camkes file for parsing
-    with open(APPS_FOLDER + project_camkes) as camkes_file:
-        lines = camkes_file.readlines()
-    # Save any imports and add them back in
-    imports = ""
-    import_regex = re.compile(r'import .*')
-    for line in lines:
-        if import_regex.match(line):
-            imports += line
 
-    camkes_text = "\n".join(lines)
-    # Parse using camkes parser
-    camkes_builtin_path = os.path.realpath(__file__ + '/../../camkes/include/builtin')
-    include_path = [camkes_builtin_path]
-    if vm_mode:
-        print "vm mode"
-        cpp = True
-        config_path = os.path.realpath(__file__ + '/../../../apps/%s/configurations' % vm)
-        vm_components_path = os.path.realpath(__file__ + '/../../../apps/%s/../../components/VM' % vm)
-        plat_includes = os.path.realpath(__file__ + '/../../../kernel/include/plat/%s' % PLAT)
-        cpp_options  = ['-DCAMKES_VM_CONFIG=%s' % vm, "-I"+config_path, "-I"+vm_components_path, "-I"+plat_includes]
-        include_path.append(os.path.realpath(__file__ + "/../../../projects/vm/components"))
-        include_path.append(os.path.realpath(__file__ + "/../../../projects/vm/interfaces"))
-    else:
-        cpp = False
-        cpp_options = []
-    target_ast = parser.parse_to_ast(camkes_text, cpp, cpp_options)  
-    # Resolve other imports
-    project_dir = os.path.dirname(os.path.realpath(APPS_FOLDER + project_camkes)) + "/"
-    target_ast, _ = parser.resolve_imports(target_ast, project_dir, include_path, cpp, cpp_options)
-    target_ast = parser.resolve_references(target_ast)
-    # Find debug components declared in the camkes file
-    debug_components = get_debug_components(target_ast)
-    # Use the declared debug components to find the types we must generate
-    debug_types, target_assembly = get_debug_component_types(target_ast, debug_components)
-    # Generate the new types
-    target_ast = create_debug_component_types(target_ast, debug_types)
-    # Add declarations for the new types
-    target_ast = add_debug_declarations(target_ast, debug_components, target_assembly)
-    # Get the static definitions needed every time
+    selected_arm_plat = os.environ.get('PLAT')
+
+    print "Debugging %s using the serial port" % selected_arm_plat
+    if len(debug_types) > 1:
+        print "Cannot Debug Multiple Components w/ a Single Serial Port"
+        sys.exit(0)
+    target_assembly = add_serial_debug_declarations(target_ast, debug_types, selected_arm_plat)
+
+    # Get the static definitions needed every time and update with method specific lines
     debug_definitions = get_debug_definitions()
-    # Generate server based on debug components
-    debug_definitions += generate_server_component(debug_components)
-    # Update makefile with the new debug camkes
-    update_makefile(project_camkes, debug_types)
+    debug_definitions += generate_server_component(debug_types)
+
+    # update debug component's configuration
+    update_component_config(PROJECT_FOLDER, debug_types)
+
+    # update the makefile to adjust for new ast, templates
+    update_makefile(PROJECT_FOLDER)
+
     # Copy the templates into the project directory
-    copy_templates(project_camkes)
+    copy_templates(PROJECT_FOLDER)
+
     # Add our debug definitions
-    new_camkes = parser.pretty(parser.show(target_ast))
-    # Reparse and rearrange the included code
-    procedures = []
-    main_ast = []
-    new_ast = parser.parse_to_ast(new_camkes, cpp, cpp_options)
-    for component in new_ast:
-        if isinstance(component, ast.Objects.Procedure):
-            procedures.append(component)
-        else:
-            main_ast.append(component)   
-    final_camkes = imports + debug_definitions + parser.pretty(parser.show(procedures + main_ast))
+    final_camkes = debug_definitions + parser.pretty(parser.show(target_ast))
+
     # Write new camkes file
-    with open(APPS_FOLDER + project_camkes + ".dbg", 'w') as f:
+    with open(PROJECT_FOLDER + project_camkes_config + ".dbg", 'w') as f:
         for line in final_camkes:
             f.write(line)
+
+    project_name = os.path.basename(os.path.dirname(PROJECT_FOLDER + project_camkes_config));
+
     # Write a gdbinit file
-    name_regex = re.compile(r"(.*)/")
-    search = name_regex.search(project_camkes)
-    if debug_components:
-        write_gdbinit(search.group(1), debug_components)
-    else:
-        print "No debug components found"
+    write_gdbinit(project_name, debug_types, selected_arm_plat)
 
 if __name__ == "__main__":
     main(sys.argv[1:])

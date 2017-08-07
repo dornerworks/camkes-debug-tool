@@ -8,12 +8,11 @@ connector seL4GDB {
   to Procedure user_inf template "seL4GDB-to.template.c";
 }
 
+connector seL4UART {
+    from Procedure client template "seL4UART.template.c";
+    to Procedure hw_uart;
+}
+
 procedure CAmkES_Debug {
   void debug(in int num);
-} 
-
-component debug_Serial {
-  hardware;
-  emits IRQ%s irq;
-  provides IOPort serial;
 }
