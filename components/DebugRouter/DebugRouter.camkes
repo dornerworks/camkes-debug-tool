@@ -1,0 +1,28 @@
+import <Ethdriver.idl4>;
+import <tcp.idl4>;
+import <TIMER.idl4>;
+
+component DebugRouter {
+    control;
+    has mutex lwip;
+    uses Ethdriver ethdriver;
+    uses TIMER timer;
+    consumes IRQ timer_irq;
+    dataport Buf timer_reg;
+    attribute string ip_addr;
+    attribute string gw_addr;
+    attribute string multicast_addr;
+    attribute string mask_addr;
+    attribute int num_client_recv_bufs;
+    provides TCP router;
+    dataport Buf router_recv_buf;
+    dataport Buf router_send_buf;
+    emits Notification recv_ready;
+}
+
+component router_hw {
+    hardware;
+    dataport Buf timer_reg;
+    provides TIMER timer_inf;
+    emits IRQ timer_irq;
+}
