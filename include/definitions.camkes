@@ -13,6 +13,11 @@ connector seL4UART {
     to Procedure hw_uart;
 }
 
+connector seL4TIMER {
+    from Procedure client template "seL4TIMER.template.c";
+    to Procedure hw_timer;
+}
+
 procedure CAmkES_Debug {
   void debug(in int num);
 }

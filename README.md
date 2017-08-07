@@ -39,7 +39,8 @@ This document assumes some familiary with [CAmkES](https://github.com/seL4/
 camkes-tool/blob/master/docs/index.md) and the [seL4 microkernel](http://sel4.systems/). If you are
 not familiar with them then you should read their documentation first.
 
-All of the following steps were tested using Linux Ubuntu 14.04. This tutorial also assumes the
+All of the following steps were tested using Linux Ubuntu 14.04. The Eclipse IDE was previously
+installed; see the company’s website for documentation how to do so. This tutorial also assumes the
 user is capable of downloading a seL4 application onto the target platform, and that you are
 familiar with graphical debug tools.
 
@@ -50,13 +51,14 @@ familiar with graphical debug tools.
 4. [TODO](#TODO)
 
 ##  Getting Started <a name="get_started"></a>
-This section guides the user on how to get the CAmkES debug tool and compile it with an example
-application.
+This section guides the user on how to get the CAmkES debug tool, compile it with an example
+application, and use GDB to debug the application through a TCP network socket using command line tools
+or the Eclipse Stand Alone Debugger.
 
 ### Getting the Example Application
 Performing the following commands will get the all of the required code to build the GDB Sample
-Application. The tool will work with compatible ARM Platforms; however, some modification of the
-sample application may be required.
+Application on the Xilinx ZC702 breakout board. The tool will work with compatible ARM Platforms;
+however, some modification of the sample application may be required.
 
 ```
 mkdir camkes_debug
@@ -69,7 +71,7 @@ repo sync
 The debug tool is integrated into the CAmkES build process; therefore, there is no need to invoke
 the tool separately.
 ```
-make zynq7000_serial_gdb_defconfig
+make imx6_eth_gdb_defconfig
 make
 ```
 The debug tool will output an <instance>.gdbinit file for every component that is getting debugged.
@@ -77,8 +79,10 @@ For reference, per the CAmkES manual, an instance is defined as "An instantiatio
 type." Any instance of a component should be debuggable.
 
 The debug tool can be used on the i.MX6 and zynq7000 platforms and can communicate with GDB using
-the serial protocol. Therefore, either of the following defconfigs can be used.
+the serial or ethernet protocol. Therefore, any of the following defconfigs can be used.
+* imx6\_eth\_gdb\_defconfig
 * imx6\_serial\_gdb\_defconfig
+* zynq\_eth\_gdb\_defconfig
 * zynq\_serial\_gdb\_defconfig
 
 ### Running the system
@@ -99,6 +103,7 @@ GDB.
 On your terminal, enter the following commands to start the GDB Host, load in the symbol-file from
 the selected component, and initialize a connection to your target platform.
 
+If debugging using the serial port, perform the following commands:
 ```
 dmesg | grep ttyUSB
 sudo chmod 666 /dev/ttyUSBx
@@ -109,9 +114,10 @@ Where `USBx` is the serial connection used to debug.
 ```
 arm-none-eabi-gdb
 (gdb) source <instance>.gdbinit
-(gdb) target remote /dev/ttyUSBx
 ```
-If everything goes correctly, you should see the following on your terminal after a few seconds.
+If debugging using the Serial Port, also perform the following command: `target remote /dev/ttyUSBx`
+
+If everything goes correctly, you should see the following on your terminal.
 
 ```
 breakpoint ()
@@ -119,6 +125,31 @@ breakpoint ()
 100	    asm(".word 0xfedeffe7\n");
 ```
 At this point, GDB is ready to debug your program!
+
+### Running GDB on the Eclipse Stand Alone Debugger
+This section assumes you are debugging with the Ethernet interface and have the Eclipse IDE
+installed without the Stand Alone Debugger. See
+[here](http://github.com/dornerworks/debug-tool/docs/Debug%20w%20Eclipse%20Stand%20Alone%20Debugger%20How-To.docx)
+for more in-depth instructions (with pictures!).
+
+1. In Eclipse, select `Help->Install New SW`
+2. Under `Work With`, enter `cdt - http://download.eclipse.org/tools/cdt/releases/8.8.1/` to install the Stand Alone Debugger.
+3. Select `File->New->Makefile Project With Existing Code` and import your already built
+application.
+4. Select `Run->Debug Configurations` to create a new debug configuration that will be used to connect to your
+target platform.
+5. Right click on  `GDB Hardware Debugging` and select `New`
+6. In the main tab, import the compiled binary of the component you wish to debug, not the file in
+   the images directory. Select `Disable Auto Build`.
+7. In the debugger tab under Remote Target, select `Use Remote Target`, select `Generic TCP/IP`
+   under the JTAG Device Menu. For the Host Name, input the IP Address and Port that are configured
+   in the ADL.
+8. In the Startup Tab, uncheck `Reset & Delay`, `Halt`, and `Load Image`. Save the debug
+   configuration.
+9. Ensure your target platform is powered on. Hit `Debug` to begin debugging. Once the initial
+   breakpoint has been hit, click on <instance>_main in the debug view. Right click on __run()__ and
+   select `Open Declaration`. Select the function from your debugged component and begin debugging
+   with the Eclipse Stand Alone Debugger!
 
 ### Using GDB on the Terminal
 Current functionality includes reading and writing memory & registers, setting SW Breakpoints, SW
@@ -131,8 +162,8 @@ Watchpoints, Stepping, Continuing, and Killing the program.
 This debug tool will provide an interface for you to debug components as you wish within CAmkES.
 
 To select which components you wish to debug, specify the debug attribute in the camkes
-configuration. This debug tool cannot handle multiple components being debugged at once using
-a single serial port.
+configuration. This debug tool can handle multiple components being debugged at once using TCP;
+however, only a single component can be debugged using the serial port.
 
 ### Example CAmkES file
 ```
@@ -153,6 +184,7 @@ configuration {
     r1.debug = "True";
 }
 ```
+
 ### Running the tool
 The debug tool is used by running the script **debug.py**. The build process automatically performs
 this operation.
@@ -180,7 +212,40 @@ each debug component.
 1. Fault Endpoint that is connected from the debug component to the server.
 2. Connection to a delegate used to manipulate data on GDB's behalf.
 
-Debugging with the Serial port, a Dataport is added to the DebugServer and component to be debugged.
+If debugging with the Serial port, a Dataport is added to the DebugServer and component to be debugged.
+
+In order to communicate with a remote GDB Host using TCP, the following components are also created:
+* Debug Router
+* Ethdriver
+
+The Debug Router communicates with the lwIP libraries to initialize a TCP connection using the
+Ethdriver component to deal with the low-level hardware. The timer exists for TCP Callbacks.
+
+Each debugged component's configuration also gets modified to include GDB and Fault interfaces, TCP
+interfaces and buffers, and a TCP Notification. When data arrives on the TCP connection, the
+debugged component consumes the notification in the GDB source code, handling the
+acknowledgment and response procedures.
+
+**Before**
+```
+component Sender1 {
+    control;
+    uses MyInterface out1;
+}
+```
+**After**
+```
+component Sender1 {
+    control;
+    uses CAmkES_Debug fault;
+    provides CAmkES_Debug GDB_delegate;
+    uses TCP s1_tcp;
+    dataport Buf s1_tcp_recv_buf;
+    dataport Buf s1_tcp_send_buf;
+    consumes Notification s1_ready;
+    uses MyInterface out1;
+}
+```
 
 ### Files
 
@@ -192,7 +257,8 @@ These files are found in the top level of the debug folder.
   modifying the system architecture and components, and creating backups of the required components
   for restoration.
 
-**debug_config.py** - File for including configuration variables like HW Addresses used in **debug.py**
+**debug_config.py** - File for including configuration variables like HW Addresses, IP Addresses,
+  and TCP Ports. Used in **debug.py**
 
 ---
 
@@ -214,11 +280,43 @@ These files are found under `templates/gdb_templates`.
 
 **serial_gdb.c** - contains put and get packet functions for serial debugging
 
+**eth_gdb.c** - contains put and get packet functions for TCP debugging
+
 **gdb.h** - GDB remote stub header.
 
 ---
 
+#### TCP Templates
+
+These files are found under `templates/eth_templates`.
+
+**seL4Ethdriver-from.template.c** - Doesn't do much. There for both sides of the connection.
+
+**seL4Ethdriver-to.template.c** - Exists to signal the Ethdriver's clients.
+
+**seL4TCP-from.template.c** - Component Side interface functions.
+
+**seL4TCP-to.template.c** - Initialize a TCP Protocol Control Block that listens for a
+  connection. Setup the Send and Receive callback functions.
+
+#### Timer Templates
+
+These files are found under `templates/eth_templates` and are used by the Router to perform the
+neccesarry TCP callback functions.
+
+**seL4TIMER.template.c** - Platform independent template to create a timer interface.
+
+**seL4TTC.template.c** - Zynq7000 TTC funcitonality.
+
+**seL4EPIT.template.c** - i.MX6 EPIT functionality
+
+**seL4GPT.template.c** - i.MX6 GPT functionality
+
+---
+
 #### Include
+
+**configurations.camkes** - Contains all the extra configurations for the Router and Ethdriver.
 
 **definitions.camkes** - Contains the custom connector and import statements that will endup in the
   updated application configuration.
@@ -227,9 +325,15 @@ These files are found under `templates/gdb_templates`.
 
 #### Interfaces
 
-This folder contains the interface `.idl4` files used to communicate between using UART
+This folder contains the interface `.idl4` files used to communicate between the Ethdriver, Router,
+and TCP components. The contents of this folder are defined as a default location for interfaces.
 
 ---
+
+#### Components
+
+This directory contains the source code for the Ethdriver and DebugRouter components. This folder is
+considered a default search path for CAmkES components.
 
 ### Inspecting the Output
 

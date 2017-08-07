@@ -1,0 +1,28 @@
+/* Configuration for the Router, Ethdriver, and Timer that will always be the same,
+ * regardless of user configuration values
+ */
+
+configuration {
+    router.num_client_recv_bufs = 64;
+    /* ip_addr should match the defined address in debug_config.py */
+    router.ip_addr = "172.27.14.29";
+    router.gw_addr = "172.27.255.255";
+    router.multicast_addr = "0.0.0.0";
+    router.mask_addr = "255.255.0.0";
+    router.ethdriver_attributes = "0";
+    router.ethdriver_global_endpoint = "router_ep";
+    router.timer_period_ns = 25000000;
+
+    router.timer_priority = 255;
+    hw.timer_inf_priority = 255;
+
+
+    ethdriver.simple = true;
+    ethdriver.cnode_size_bits = 12;
+    ethdriver.heap_size = 0;
+
+    ethdriver.priority = 254;
+    HWEthdriver.priority = 254;
+
+    debug.priority = 254;
+}

@@ -34,7 +34,11 @@
 
 /*- include 'gdb.c' -*/
 
+#ifdef CONFIG_GDB_ETHERNET
+/*- include 'eth_gdb.c' -*/
+#else
 /*- include 'serial_gdb.c' -*/
+#endif
 
 int /*? me.to_interface.name ?*/__run(void) {
 

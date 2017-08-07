@@ -26,7 +26,7 @@ import re
 import shutil
 import getopt
 
-from debug_config import get_composition, serial_platform_info
+from debug_config import  ENET_RECV_PORT, ENET_IP_ADDR, ethernet_platform_info, get_composition, serial_platform_info
 
 PROJECT_FOLDER = os.environ.get('SOURCE_DIR') + "/"
 DEFINITIONS_DIR = os.path.realpath(__file__ + '/../include/definitions.camkes')
@@ -63,7 +63,7 @@ def get_debug_components(target_ast):
     return debug_types, target_assembly
 
 def add_serial_debug_declarations(target_ast, debug_components, selected_arm_plat):
-    camkes_composition = get_composition()
+    camkes_composition = get_composition(True)
     instance = debug_components.values()[0]
 
     # We always need to insert the GDB and Delegate connections
@@ -97,11 +97,72 @@ def add_serial_debug_declarations(target_ast, debug_components, selected_arm_pla
 
     return target_ast
 
-def generate_server_component(debug_components):
+#Add in debug connections, instances, & configuration found in 'include' folder
+def add_ethernet_debug_declarations(target_ast, debug_types, selected_arm_plat):
+    camkes_composition =  get_composition(False)
+
+    # Add in Ethernet Connections, GDB Connections
+    for i, component in enumerate(debug_types):
+        instance = debug_types.get(component)
+        # We always need to insert the GDB and Delegate connections
+        camkes_composition.insert(-1, "connection seL4Debug debug%d_delegate(from debug.%s_GDB_delegate, to %s.GDB_delegate);" \
+                                % (i, instance, instance))
+        camkes_composition.insert(-1, "connection seL4GDB debug%d_fault(from %s.fault, to debug.%s_fault);" \
+                                % (i, instance, instance))
+
+        camkes_composition.insert(-1, "connection seL4TCP recv%d(from %s.%s_tcp, to router.router);" % (i, instance, instance))
+        camkes_composition.insert(-1, "connection seL4GlobalAsynchCallback ready%d(from router.recv_ready, to %s.%s_ready);" \
+                                % (i, instance, instance))
+        camkes_composition.insert(-1, "connection seL4MultiSharedData send_buf%d(from %s.%s_tcp_send_buf, to router.router_send_buf);" \
+                                % (i, instance, instance))
+        camkes_composition.insert(-1, "connection seL4MultiSharedData recv_buf%d(from %s.%s_tcp_recv_buf, to router.router_recv_buf);" \
+                                % (i, instance, instance))
+
+    camkes_composition = "\n".join(camkes_composition)
+    debug_ast = parser.parse_to_ast(camkes_composition)
+
+    platform_config_text, platform_enet_irq = ethernet_platform_info(selected_arm_plat)
+
+    with open(CONFIG_CAMKES) as config_file:
+        config_text = config_file.readlines()
+
+    config_text = "\n".join(config_text)
+    config_ast = parser.parse_to_ast(config_text)
+
+    #update the target assembly to include components,connections,and configuration found in "include"
+    for assembly in target_ast:
+        for obj in assembly.children():
+            if isinstance(obj, ast.Objects.Composition):
+                obj.instances += debug_ast[0].instances
+                obj.connections += debug_ast[0].connections
+            elif isinstance(obj, ast.Objects.Configuration):
+                obj.settings.append(platform_config_text)
+                obj.settings.append(ast.Objects.Setting("HWEthdriver", "irq_attributes", "%d" % platform_enet_irq))
+
+                for assembly in config_ast:
+                    for config in assembly.children():
+                        obj.settings.append(config)
+                for i, component in enumerate(debug_types):
+                    instance = debug_types.get(component)
+                    enet = str(ast.Objects.Setting("%s" % instance, "%s_tcp_recv_buf_attributes" % instance, "\"%s\"" % i))
+                    enet += str(ast.Objects.Setting("%s" % instance, "%s_tcp_send_buf_attributes" % instance, "\"%s\"" % i))
+                    enet += str(ast.Objects.Setting("%s" % instance, "%s_tcp_attributes" % instance, "\"%s\"" % i))
+                    enet += str(ast.Objects.Setting("%s" % instance, "%s_tcp_port" % instance, "%d" % (ENET_RECV_PORT+i)))
+                    enet += str(ast.Objects.Setting("%s" % instance, "%s_tcp_global_endpoint" \
+                                                    % instance, "\"%s\"" % str(instance + "_ep")))
+                    enet += str(ast.Objects.Setting("%s" % instance, "%s_ready_global_endpoint" \
+                                                    % instance, "\"%s\"" % str(instance + "_ep")))
+                    obj.settings.append(enet)
+
+
+    return target_ast
+
+def generate_server_component(debug_components, serial_debug_selected):
     server = ""
 
-    server += "component DebugSerial {\n"
-    server += "  hardware;\n  dataport Buf uart_mem;\n  emits IRQ uart_irq;\n  provides UART uart_inf;\n}\n\n"
+    if serial_debug_selected:
+        server += "component DebugSerial {\n"
+        server += "  hardware;\n  dataport Buf uart_mem;\n  emits IRQ uart_irq;\n  provides UART uart_inf;\n}\n\n"
 
     server += "component DebugServer {\n"
     for instance in debug_components.values():
@@ -111,16 +172,24 @@ def generate_server_component(debug_components):
     server += "}\n\n"
     return server
 
-def get_debug_definitions():
+
+def get_debug_definitions(serial_debug_selected):
 
     with open(DEFINITIONS_DIR) as definitions_file:
         definitions_text = definitions_file.read()
 
-    definitions_text += "import <UART.idl4>;\n"
+    if serial_debug_selected:
+         definitions_text += "import <UART.idl4>;\n"
+    else:
+        definitions_text += "import <Ethdriver/Ethdriver.camkes>;\n"
+        definitions_text += "import <ethernet_procedures.camkes>;\n"
+        definitions_text += "import <DebugRouter/DebugRouter.camkes>;\n\n"
+        definitions_text += "import <tcp.idl4>;\n"
+        definitions_text += "import <TIMER.idl4>;\n\n"
 
     return definitions_text
 
-def update_component_config(project_dir, debug_types):
+def update_component_config(project_dir, debug_types, serial_debug_selected):
     for keys in debug_types.keys():
         source = project_dir + 'components/' + keys + '/' + keys
 
@@ -150,8 +219,15 @@ def update_component_config(project_dir, debug_types):
             if component_found:
                 new_interface =  "    uses CAmkES_Debug fault;\n    provides CAmkES_Debug GDB_delegate;\n"
 
-                new_interface += "    dataport Buf uart_mem;\n    consumes IRQ uart_irq;\n    uses UART uart;\n"
-                new_imports = "import <UART.idl4>;\n"
+                if serial_debug_selected:
+                    new_interface += "    dataport Buf uart_mem;\n    consumes IRQ uart_irq;\n    uses UART uart;\n"
+                    new_imports = "import <UART.idl4>;\n"
+                else:
+                    new_interface += "    uses TCP %s_tcp;\n" % debug_types.get(keys)
+                    new_interface += "    dataport Buf %s_tcp_recv_buf;\n" % debug_types.get(keys)
+                    new_interface += "    dataport Buf %s_tcp_send_buf;\n" % debug_types.get(keys)
+                    new_interface += "    consumes Notification %s_ready;\n" % debug_types.get(keys)
+                    new_imports = "import <tcp.idl4>;\n"
 
                 component_text.insert(x, new_interface)
                 component_text.insert(0, new_imports)
@@ -161,8 +237,7 @@ def update_component_config(project_dir, debug_types):
                 for line in component_text:
                     component_rw.write(line)
 
-
-def update_makefile(project_dir):
+def update_makefile(project_dir, serial_debug_selected):
     # If the backup file doesn't exist, we need to make one!
     if not os.path.isfile(project_dir + "Makefile.bk"):
         # Read makefile
@@ -176,23 +251,43 @@ def update_makefile(project_dir):
 
         # Search for the ADL and Templates liat and modify them
         templates_found = False
+        control_found = False
 
         adl_regex = re.compile(r"ADL")
         template_regex = re.compile(r'TEMPLATES :=')
+
+        if not serial_debug_selected:
+            ethdriver_found = False
+            ethdriver_regex = re.compile("Ethdriver")
 
         # Go through Makefile text and append the neccessary changes
         for index, line in enumerate(makefile_text):
             if template_regex.search(line):
                 templates_found = True
                 makefile_text[index] = line.rstrip() + "gdb_templates\n"
+                if not serial_debug_selected:
+                    makefile_text[index] = line.rstrip() + "eth_templates global-templates\n"
             if adl_regex.search(line):
                 makefile_text[index] = line.rstrip() + ".dbg\n"
+
+            if not serial_debug_selected:
+                if ethdriver_regex.search(line):
+                    ethdriver_found = True
+
         makefile_text.append("\n\n")
 
         # Add Templates if the project doesn't define their own
         new_lines = list()
         if not templates_found:
-            new_lines.append("TEMPLATES := gdb_templates\n")
+            if serial_debug_selected:
+                new_lines.append("TEMPLATES := gdb_templates\n")
+            else:
+                new_lines.append("TEMPLATES := eth_templates gdb_templates global-templates\n")
+
+        if not serial_debug_selected:
+            if not ethdriver_found:
+                new_lines.append("include Ethdriver/Ethdriver.mk\n")
+            new_lines.append("include DebugRouter/DebugRouter.mk\n")
 
         # Write out new makefile
         makefile_text = new_lines + makefile_text
@@ -201,17 +296,49 @@ def update_makefile(project_dir):
                 new_makefile.write(line)
 
 # Copy the templates to the project folder
-def copy_templates(project_dir):
+def copy_templates(project_dir, serial_debug_selected):
     if not os.path.exists(project_dir + "gdb_templates"):
         os.symlink(TEMPLATES_SRC_DIR + 'gdb_templates/', project_dir + 'gdb_templates')
+    if not serial_debug_selected:
+        if not os.path.exists(project_dir + "eth_templates"):
+            os.symlink(TEMPLATES_SRC_DIR + 'eth_templates/', project_dir + 'eth_templates')
+        if not os.path.exists(project_dir + "global-templates"):
+            os.symlink('../../projects/global-components/templates', project_dir + 'global-templates')
 
-def write_gdbinit(projects_name, debug_components, selected_arm_plat):
+def write_gdbinit(projects_name, debug_components, selected_arm_plat, serial_debug_selected):
     top_folder = os.environ.get('PWD') + "/"
-    for component in debug_components.values():
-        with open(top_folder + '%s.gdbinit' % component, 'w+') as gdbinit_file:
+    for i, component in enumerate(debug_components):
+        instance = debug_components.get(component)
+        with open(top_folder + '%s.gdbinit' % instance, 'w+') as gdbinit_file:
             gdbinit_file.write("symbol-file build/arm/%s/%s/%s.instance.bin\n" %
-                               (selected_arm_plat, projects_name, component))
-            gdbinit_file.write("set serial baud 115200\n")
+                               (selected_arm_plat, projects_name, instance))
+            if serial_debug_selected:
+                gdbinit_file.write("set serial baud 115200\n")
+            else:
+                gdbinit_file.write("target remote %s:%d" %  (ENET_IP_ADDR, ENET_RECV_PORT+i))
+
+
+def find_gdb_method():
+
+    if os.path.isfile(DOT_CONFIG):
+        # Default GDB communication is Serial, since UART is available on most/all platforms,
+        # and Ethernet is only available if built in or on a breakout board.
+        serial_debug_selected = True
+        eth_regex = re.compile("CONFIG_GDB_ETHERNET=y")
+
+        with open(DOT_CONFIG) as dot_config_file:
+            dot_config_text = dot_config_file.readlines()
+
+        # Since Serial is the default, we only search to see if Ethernet is selected
+        for line in dot_config_text:
+            if eth_regex.search(line):
+                serial_debug_selected = False
+                break
+    else:
+        print "Can't find the .config file"
+        sys.exit(-1)
+
+    return serial_debug_selected
 
 # Cleanup any new files generated
 def clean_debug(project_dir, camkes_file, debug_types):
@@ -228,10 +355,14 @@ def clean_debug(project_dir, camkes_file, debug_types):
         os.remove(project_dir + "Makefile")
         os.rename(project_dir + "Makefile.bk", project_dir + "Makefile")
 
+    if os.path.isdir(project_dir + "global-templates"):
+        os.unlink(project_dir + 'global-templates');
     if os.path.isfile(project_dir + camkes_file + ".dbg"):
         os.remove(project_dir + camkes_file + ".dbg")
     if os.path.isdir(project_dir + "gdb_templates"):
         os.unlink(project_dir + 'gdb_templates');
+    if os.path.isdir(project_dir + "eth_templates"):
+        os.unlink(project_dir + 'eth_templates');
 
     top_folder = os.environ.get('PWD') + "/"
     for instance in debug_types.values():
@@ -277,26 +408,31 @@ def main(argv):
             clean_debug(PROJECT_FOLDER, project_camkes_config, debug_types)
             sys.exit(0)
 
+    serial_debug_selected = find_gdb_method()
     selected_arm_plat = os.environ.get('PLAT')
 
-    print "Debugging %s using the serial port" % selected_arm_plat
-    if len(debug_types) > 1:
-        print "Cannot Debug Multiple Components w/ a Single Serial Port"
-        sys.exit(0)
-    target_assembly = add_serial_debug_declarations(target_ast, debug_types, selected_arm_plat)
+    if serial_debug_selected:
+        print "Debugging %s using the serial port" % selected_arm_plat
+        if len(debug_types) > 1:
+            print "Cannot Debug Multiple Components w/ a Single Serial Port"
+            sys.exit(0)
+        target_assembly = add_serial_debug_declarations(target_ast, debug_types, selected_arm_plat)
+    else:
+        print "Debugging %s using the Ethernet port" % selected_arm_plat
+        target_assembly = add_ethernet_debug_declarations(target_ast, debug_types, selected_arm_plat)
 
     # Get the static definitions needed every time and update with method specific lines
-    debug_definitions = get_debug_definitions()
-    debug_definitions += generate_server_component(debug_types)
+    debug_definitions = get_debug_definitions(serial_debug_selected)
+    debug_definitions += generate_server_component(debug_types, serial_debug_selected)
 
     # update debug component's configuration
-    update_component_config(PROJECT_FOLDER, debug_types)
+    update_component_config(PROJECT_FOLDER, debug_types, serial_debug_selected)
 
     # update the makefile to adjust for new ast, templates
-    update_makefile(PROJECT_FOLDER)
+    update_makefile(PROJECT_FOLDER, serial_debug_selected)
 
     # Copy the templates into the project directory
-    copy_templates(PROJECT_FOLDER)
+    copy_templates(PROJECT_FOLDER, serial_debug_selected)
 
     # Add our debug definitions
     final_camkes = debug_definitions + parser.pretty(parser.show(target_ast))
@@ -309,7 +445,7 @@ def main(argv):
     project_name = os.path.basename(os.path.dirname(PROJECT_FOLDER + project_camkes_config));
 
     # Write a gdbinit file
-    write_gdbinit(project_name, debug_types, selected_arm_plat)
+    write_gdbinit(project_name, debug_types, selected_arm_plat, serial_debug_selected)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
