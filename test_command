@@ -1,9 +1,0 @@
-$qSupported:multiprocess+;swbreak+;hwbreak+;xmlRegisters=i386;qRelocInsn+#54
-$Hg1#e0
-$qTStatus#49
-$?#3f
-$qfThreadInfo#bb
-$qsThreadInfo#c8
-$qAttached#8f
-$Hc-1#09
-$g#67
