@@ -49,6 +49,11 @@ volatile uint8_t ethernet_func = 0;
  */
 void /*? me.to_instance.name ?*/_ready_callback(void)
 {
+    if (!gdb_enabled())
+    {
+        return;
+    }
+
     /* Variables for storing the previous message information */
     unsigned int len = 0;
     char * tst = (char *)/*? me.to_instance.name ?*/_tcp_recv_buf;
@@ -85,6 +90,11 @@ void /*? me.to_instance.name ?*/_ready_callback(void)
 
 int enet_getPacket(char * ret_buf)
 {
+    if (!gdb_enabled())
+    {
+        return 0;
+    }
+
     while(rx_packet.ready == 0);
 
     memcpy(ret_buf, (char *)rx_packet.buf, rx_packet.len);
@@ -101,6 +111,11 @@ int enet_getPacket(char * ret_buf)
  */
 static char enet_getAck(void)
 {
+    if (!gdb_enabled())
+    {
+        return 0;
+    }
+
     if(gdb_ack.recv != 0)
     {
         gdb_ack.recv = 0;
@@ -114,6 +129,10 @@ static char enet_getAck(void)
 
 void enet_putPacket(char * send_buf, int len)
 {
+    if (!gdb_enabled())
+    {
+        return;
+    }
     /*? me.to_instance.name ?*/_tcp_send((uintptr_t)send_buf, len);
 }
 

@@ -73,6 +73,12 @@ void breakpoint(void)
     asm(".word 0xfedeffe7\n");
 }
 
+int gdb_enabled(void) __attribute__((weak));
+int gdb_enabled(void)
+{
+    return 1;
+}
+
 static inline void prefetch_flush(void)
 {
     /* armv7-A specific. Will need to modifiy for a differnt version */
@@ -342,6 +348,11 @@ seL4_Word handle_breakpoint(void)
     local_registers[PC] = tcb_regs.pc;
     local_registers[CPSR] = tcb_regs.cpsr;
 
+    if(!gdb_enabled())
+    {
+        return local_registers[PC]+4;
+    }
+
     memset(remcomOutBuffer, 0, BUFMAX);
     ptr = remcomOutBuffer;
 
@@ -389,7 +400,7 @@ seL4_Word handle_breakpoint(void)
     putpacket(remcomOutBuffer);
 
     /* stay in this loop...forever...or until a single step or continue command returns out of it */
-    while (1)
+    while (gdb_enabled())
     {
         memset(remcomOutBuffer, 0, BUFMAX);
         ptr = getpacket();

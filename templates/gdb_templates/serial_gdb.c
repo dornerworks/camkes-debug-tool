@@ -19,6 +19,11 @@
 
 void uart_irq_handle(void * cookie)
 {
+    if (!gdb_enabled())
+    {
+        return;
+    }
+
     uart_handle_interrupt();
     uart_irq_reg_callback(uart_irq_handle, NULL);
 }
